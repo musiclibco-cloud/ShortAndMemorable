@@ -327,10 +327,16 @@ function tetolib:CreateWindow(options)
     MinBtn.MouseButton1Click:Connect(function()
         if not minimized then
             TweenService:Create(Main, TweenInfo.new(0.3), {Size = UDim2.new(0, 550, 0, 40)}):Play()
+            -- Hide tabs and content
+            TabContainer.Visible = false
+            ContentContainer.Visible = false
             MinBtn.Text = "+"
             minimized = true
         else
             TweenService:Create(Main, TweenInfo.new(0.3), {Size = UDim2.new(0, 550, 0, 360)}):Play()
+            -- Show tabs and content
+            TabContainer.Visible = true
+            ContentContainer.Visible = true
             MinBtn.Text = "-"
             minimized = false
         end
@@ -508,6 +514,7 @@ function tetolib:CreateWindow(options)
             local sliderText = options.Name or "Slider"
             local min = options.Min or 0
             local max = options.Max or 100
+            local increment = options.Increment or 1
             local currentValue = options.CurrentValue or min
             local callback = options.Callback or function() end
             
@@ -549,7 +556,7 @@ function tetolib:CreateWindow(options)
             local SliderBar = Instance.new("Frame")
             SliderBar.Size = UDim2.new(1, -20, 0, 4)
             SliderBar.Position = UDim2.new(0, 10, 1, -15)
-            SliderBar.BackgroundColor3 = tetolib.Theme.SliderBackground
+            SliderBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
             SliderBar.BorderSizePixel = 0
             SliderBar.Parent = Slider
             
@@ -567,6 +574,18 @@ function tetolib:CreateWindow(options)
             SliderFillCorner.CornerRadius = UDim.new(1, 0)
             SliderFillCorner.Parent = SliderFill
             
+            local SliderDot = Instance.new("Frame")
+            SliderDot.Size = UDim2.new(0, 12, 0, 12)
+            SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+            SliderDot.AnchorPoint = Vector2.new(0, 0.5)
+            SliderDot.BackgroundColor3 = tetolib.Theme.Red
+            SliderDot.BorderSizePixel = 0
+            SliderDot.Parent = SliderBar
+            
+            local SliderDotCorner = Instance.new("UICorner")
+            SliderDotCorner.CornerRadius = UDim.new(1, 0)
+            SliderDotCorner.Parent = SliderDot
+            
             local SliderButton = Instance.new("TextButton")
             SliderButton.Size = UDim2.new(1, 0, 1, 0)
             SliderButton.BackgroundTransparency = 1
@@ -575,9 +594,22 @@ function tetolib:CreateWindow(options)
             
             local dragging = false
             
+            local function updateSlider(input)
+                local pos = math.clamp((input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
+                local rawValue = min + (max - min) * pos
+                currentValue = math.floor(rawValue / increment + 0.5) * increment
+                currentValue = math.clamp(currentValue, min, max)
+                
+                ValueLabel.Text = tostring(currentValue)
+                SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                callback(currentValue)
+            end
+            
             SliderButton.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                     dragging = true
+                    updateSlider(input)
                 end
             end)
             
@@ -589,11 +621,7 @@ function tetolib:CreateWindow(options)
             
             UserInputService.InputChanged:Connect(function(input)
                 if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                    local pos = math.clamp((input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
-                    currentValue = math.floor(min + (max - min) * pos)
-                    ValueLabel.Text = tostring(currentValue)
-                    SliderFill.Size = UDim2.new(pos, 0, 1, 0)
-                    callback(currentValue)
+                    updateSlider(input)
                 end
             end)
             
@@ -602,6 +630,7 @@ function tetolib:CreateWindow(options)
                     currentValue = math.clamp(value, min, max)
                     ValueLabel.Text = tostring(currentValue)
                     SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
                 end
             }
         end
@@ -680,6 +709,7 @@ function tetolib:CreateWindow(options)
             Dropdown.BackgroundColor3 = tetolib.Theme.ElementBackground
             Dropdown.Parent = TabContent
             Dropdown.ClipsDescendants = false
+            Dropdown.ZIndex = 1
             
             local DropdownCorner = Instance.new("UICorner")
             DropdownCorner.CornerRadius = UDim.new(0, 6)
@@ -698,6 +728,7 @@ function tetolib:CreateWindow(options)
             Label.TextSize = 13
             Label.Font = Enum.Font.Gotham
             Label.TextXAlignment = Enum.TextXAlignment.Left
+            Label.ZIndex = 1
             Label.Parent = Dropdown
             
             local SelectedLabel = Instance.new("TextLabel")
@@ -709,6 +740,7 @@ function tetolib:CreateWindow(options)
             SelectedLabel.TextColor3 = tetolib.Theme.TextColor
             SelectedLabel.TextSize = 11
             SelectedLabel.Font = Enum.Font.Gotham
+            SelectedLabel.ZIndex = 1
             SelectedLabel.Parent = Dropdown
             
             local SelectedCorner = Instance.new("UICorner")
@@ -720,7 +752,7 @@ function tetolib:CreateWindow(options)
             DropdownList.Position = UDim2.new(1, -90, 1, 5)
             DropdownList.BackgroundColor3 = tetolib.Theme.ElementBackground
             DropdownList.Visible = false
-            DropdownList.ZIndex = 10
+            DropdownList.ZIndex = 100
             DropdownList.Parent = Dropdown
             
             local DropdownListCorner = Instance.new("UICorner")
@@ -761,6 +793,7 @@ function tetolib:CreateWindow(options)
                 ItemButton.TextSize = 11
                 ItemButton.Font = Enum.Font.Gotham
                 ItemButton.BorderSizePixel = 0
+                ItemButton.ZIndex = 100
                 ItemButton.Parent = DropdownList
                 
                 ItemButton.MouseButton1Click:Connect(function()
@@ -1020,78 +1053,5 @@ function tetolib:CreateWindow(options)
     
     return Window
 end
-
--- Example Usage
---[[
-local Window = tetolib:CreateWindow({
-    Name = "tetolib Demo"
-})
-
-local Tab = Window:CreateTab("Main")
-
-Tab:CreateSection("Buttons")
-
-Tab:CreateButton({
-    Name = "Click Me",
-    Callback = function()
-        tetolib:Notify({
-            Title = "Button Clicked",
-            Content = "You clicked the button!",
-            Duration = 3
-        })
-    end
-})
-
-Tab:CreateToggle({
-    Name = "Enable Feature",
-    CurrentValue = false,
-    Callback = function(value)
-        print("Toggle:", value)
-    end
-})
-
-Tab:CreateSlider({
-    Name = "Speed",
-    Min = 0,
-    Max = 100,
-    CurrentValue = 50,
-    Callback = function(value)
-        print("Slider:", value)
-    end
-})
-
-Tab:CreateInput({
-    Name = "Username",
-    PlaceholderText = "Enter username...",
-    Callback = function(text)
-        print("Input:", text)
-    end
-})
-
-Tab:CreateDropdown({
-    Name = "Select Option",
-    Options = {"Option 1", "Option 2", "Option 3"},
-    CurrentOption = "Option 1",
-    Callback = function(option)
-        print("Dropdown:", option)
-    end
-})
-
-Tab:CreateScrollSelector({
-    Name = "Weapon",
-    Options = {"Sword", "Bow", "Staff", "Dagger"},
-    Callback = function(weapon)
-        print("Weapon:", weapon)
-    end
-})
-
-Tab:CreateKeybind({
-    Name = "Toggle UI",
-    CurrentKeybind = "E",
-    Callback = function(key)
-        print("Keybind pressed:", key)
-    end
-})
-]]
 
 return tetolib
