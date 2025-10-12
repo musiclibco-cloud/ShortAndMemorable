@@ -1,10 +1,12 @@
 --[[
- ForsakenLib v1.0 | Retro Neumorphic Fluxus UI Framework
+ ForsakenLib v1.0.1 | Retro Neumorphic Fluxus UI Framework - Bugfix Update
+ Fixed: Tab creation and element visibility issues on mobile/PC.
+ Improved: Better auto-detection, layout handling, and connection management.
  Nostalgic. Modern. Executor-safe.
 ]]
 
 local ForsakenLib = {}
-ForsakenLib.Version = "1.0.0"
+ForsakenLib.Version = "1.0.1"
 
 local Themes = {
     ClassicGray = {
@@ -60,10 +62,13 @@ local Players = game.Players
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+-- Global connection storage for cleanup
+local globalConnections = {}
+
 local function getSafeParent()
     local hui
     local success, err = pcall(function()
-        hui = gethui()
+        hui = gethui and gethui() or nil
     end)
     if success and hui then return hui end
     local success2, coregui = pcall(function()
@@ -71,9 +76,9 @@ local function getSafeParent()
     end)
     if success2 and coregui then return coregui end
     if LocalPlayer then
-        return LocalPlayer:WaitForChild("PlayerGui", 10) or Instance.new("ScreenGui")
+        return LocalPlayer:WaitForChild("PlayerGui", 10) or game:GetService("CoreGui")
     end
-    return Instance.new("ScreenGui")
+    return game:GetService("CoreGui") -- Fallback
 end
 
 -- CreateWindow
@@ -93,8 +98,10 @@ function ForsakenLib:CreateWindow(title, options)
 
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "ForsakenLib_" .. title:gsub("%s", "")
-    screenGui.Parent = getSafeParent()
+    screenGui.ResetOnSpawn = false
     screenGui.IgnoreGuiInset = true
+    screenGui.DisplayOrder = 1000000 -- High priority for executors
+    screenGui.Parent = getSafeParent()
 
     local notifications = Instance.new("Frame")
     notifications.Name = "Notifications"
@@ -134,6 +141,7 @@ function ForsakenLib:CreateWindow(title, options)
         mainFrame.Position = UDim2.new(0.5, -300, 0.5, -200)
         mainFrame.BackgroundColor3 = theme.Background
         mainFrame.BorderSizePixel = 0
+        mainFrame.ClipsDescendants = true
         mainFrame.Parent = screenGui
 
         local corner = Instance.new("UICorner")
@@ -141,9 +149,9 @@ function ForsakenLib:CreateWindow(title, options)
         corner.Parent = mainFrame
 
         local shadow = Instance.new("UIStroke")
-        shadow.Transparency = theme.ShadowOpacity
+        shadow.Transparency = 1 - theme.ShadowOpacity
         shadow.Color = theme.Shadow
-        shadow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        shadow.Thickness = 2
         shadow.Parent = mainFrame
 
         topBar = Instance.new("Frame")
@@ -212,6 +220,7 @@ function ForsakenLib:CreateWindow(title, options)
         content.Position = UDim2.new(0, 150, 0, 30)
         content.BackgroundColor3 = theme.Background
         content.BorderSizePixel = 0
+        content.ClipsDescendants = true
         content.Parent = mainFrame
 
         if options.resizable then
@@ -226,9 +235,10 @@ function ForsakenLib:CreateWindow(title, options)
         -- Mobile mode
         mainFrame.Name = "Drawer"
         mainFrame.Size = UDim2.new(0, drawerWidth, 1, 0)
-        mainFrame.Position = UDim2.new(0, 0, 0, 0)
+        mainFrame.Position = UDim2.new(0, -drawerWidth, 0, 0) -- Start closed
         mainFrame.BackgroundColor3 = theme.Panel
         mainFrame.BorderSizePixel = 0
+        mainFrame.ClipsDescendants = true
         mainFrame.Parent = screenGui
 
         local corner = Instance.new("UICorner")
@@ -236,9 +246,9 @@ function ForsakenLib:CreateWindow(title, options)
         corner.Parent = mainFrame
 
         local shadow = Instance.new("UIStroke")
-        shadow.Transparency = theme.ShadowOpacity
+        shadow.Transparency = 1 - theme.ShadowOpacity
         shadow.Color = theme.Shadow
-        shadow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        shadow.Thickness = 2
         shadow.Parent = mainFrame
 
         sidebar = mainFrame
@@ -257,20 +267,22 @@ function ForsakenLib:CreateWindow(title, options)
         content.Name = "Content"
         content.Size = UDim2.new(1, 0, 1, 0)
         content.Position = UDim2.new(0, 0, 0, 0)
-        content.BackgroundTransparency = 1
+        content.BackgroundColor3 = theme.Background
+        content.BorderSizePixel = 0
+        content.ClipsDescendants = true
         content.Parent = screenGui
 
         overlay = Instance.new("Frame")
         overlay.Name = "Overlay"
         overlay.Size = UDim2.new(1, 0, 1, 0)
         overlay.Position = UDim2.new(0, 0, 0, 0)
-        overlay.BackgroundColor3 = theme.Shadow
+        overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
         overlay.BackgroundTransparency = 0.5
         overlay.Visible = false
-        overlay.Parent = screenGui
         overlay.ZIndex = 5
+        overlay.Parent = screenGui
         mainFrame.ZIndex = 10
-        content.ZIndex = 1
+        content.ZIndex = 6
 
         overlay.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -291,6 +303,7 @@ function ForsakenLib:CreateWindow(title, options)
             overlay.Visible = false
             content.Position = UDim2.new(0, drawerWidth, 0, 0)
             content.Size = UDim2.new(1, -drawerWidth, 1, 0)
+            isOpen = true
         else
             content.Position = UDim2.new(0, 0, 0, 0)
             content.Size = UDim2.new(1, 0, 1, 0)
@@ -306,52 +319,43 @@ function ForsakenLib:CreateWindow(title, options)
         end
     end
     updateLayout()
-    table.insert(connections, Camera.Changed:Connect(function(prop)
-        if prop == "ViewportSize" then
-            updateLayout()
-        end
-    end))
+    table.insert(connections, Camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayout))
 
     if mobilemode then
-        local touchStart
+        -- Improved mobile gesture detection
+        local touchStartPos
         local isDragging = false
         local openThreshold = 50
         local closeThreshold = 50
 
-        table.insert(connections, UIS.TouchBegan:Connect(function(touch, gp)
+        local function onTouchBegan(input, gp)
             if gp then return end
-            local posX = touch.Position.X
+            local posX = input.Position.X
             if isOpen then
                 if posX > drawerWidth then return end
             else
                 if posX > 30 then return end
             end
-            touchStart = touch.Position
+            touchStartPos = input.Position
             isDragging = true
-        end))
+        end
 
-        table.insert(connections, UIS.TouchMoved:Connect(function(touch, gp)
+        local function onTouchMoved(input, gp)
             if gp or not isDragging then return end
-            local delta = touch.Position - touchStart
+            local delta = input.Position - touchStartPos
             if math.abs(delta.Y) > math.abs(delta.X) then
                 isDragging = false
                 return
             end
-            if not isOpen then
-                if delta.X > 0 then
-                    mainFrame.Position = UDim2.new(0, math.min(0, -drawerWidth + delta.X), 0, 0)
-                end
-            else
-                if delta.X < 0 then
-                    mainFrame.Position = UDim2.new(0, math.max(-drawerWidth, delta.X), 0, 0)
-                end
-            end
-        end))
+            local newPos = math.clamp(delta.X, -drawerWidth, 0)
+            if not isOpen then newPos = math.max(0, newPos) end
+            mainFrame.Position = UDim2.new(0, newPos, 0, 0)
+        end
 
-        table.insert(connections, UIS.TouchEnded:Connect(function(touch, gp)
+        local function onTouchEnded(input, gp)
             if gp or not isDragging then return end
             isDragging = false
-            local delta = touch.Position - touchStart
+            local delta = input.Position - touchStartPos
             if not isOpen then
                 if delta.X > openThreshold then
                     isOpen = true
@@ -361,7 +365,7 @@ function ForsakenLib:CreateWindow(title, options)
                     TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, -drawerWidth, 0, 0)}):Play()
                 end
             else
-                if delta.X < -closeThreshold then
+                if -delta.X > closeThreshold then
                     isOpen = false
                     TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, -drawerWidth, 0, 0)}):Play()
                     overlay.Visible = false
@@ -369,24 +373,40 @@ function ForsakenLib:CreateWindow(title, options)
                     TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
                 end
             end
-        end))
+        end
+
+        table.insert(connections, UIS.InputBegan:Connect(onTouchBegan))
+        table.insert(connections, UIS.InputChanged:Connect(onTouchMoved))
+        table.insert(connections, UIS.InputEnded:Connect(onTouchEnded))
+
+        -- Auto-open on load for small screens
+        task.wait(0.1)
+        if not isLarge then
+            isOpen = true
+            mainFrame.Position = UDim2.new(0, 0, 0, 0)
+            overlay.Visible = true
+        end
     end
 
     -- Keybind toggle
     table.insert(connections, UIS.InputBegan:Connect(function(input, gp)
         if gp or input.KeyCode ~= options.keybind then return end
+        visible = not visible
         if mobilemode then
             if isLarge then
-                visible = not visible
                 mainFrame.Visible = visible
                 content.Visible = visible
             else
                 isOpen = not isOpen
-                TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, isOpen and 0 or -drawerWidth, 0, 0)}):Play()
-                overlay.Visible = isOpen
+                if isOpen then
+                    TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+                    overlay.Visible = true
+                else
+                    TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, -drawerWidth, 0, 0)}):Play()
+                    overlay.Visible = false
+                end
             end
         else
-            visible = not visible
             mainFrame.Visible = visible
         end
     end))
@@ -400,18 +420,21 @@ function ForsakenLib:CreateWindow(title, options)
         minimizeButton.MouseButton1Click:Connect(function()
             minimized = not minimized
             sidebar.Visible = not minimized
-            content.Size = minimized and UDim2.new(1, 0, 1, -30) or UDim2.new(1, -150, 1, -30)
-            content.Position = minimized and UDim2.new(0, 0, 0, 30) or UDim2.new(0, 150, 0, 30)
+            if minimized then
+                content.Size = UDim2.new(1, 0, 1, -30)
+                content.Position = UDim2.new(0, 0, 0, 30)
+            else
+                content.Size = UDim2.new(1, -150, 1, -30)
+                content.Position = UDim2.new(0, 150, 0, 30)
+            end
             minimizeButton.Text = minimized and "+" or "-"
         end)
 
         if options.draggable then
             local dragging = false
-            local dragInput
-            local dragStart
-            local startPos
+            local dragStart, startPos, dragInput
 
-            local function update(input)
+            local function updateInput(input)
                 local delta = input.Position - dragStart
                 mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
             end
@@ -421,9 +444,12 @@ function ForsakenLib:CreateWindow(title, options)
                     dragging = true
                     dragStart = input.Position
                     startPos = mainFrame.Position
-                    input.Changed:Connect(function()
+
+                    local conn
+                    conn = input.Changed:Connect(function()
                         if input.UserInputState == Enum.UserInputState.End then
                             dragging = false
+                            conn:Disconnect()
                         end
                     end)
                 end
@@ -435,36 +461,38 @@ function ForsakenLib:CreateWindow(title, options)
                 end
             end)
 
-            table.insert(connections, RS.InputChanged:Connect(function(input)
-                if input == dragInput and dragging then
-                    update(input)
+            table.insert(connections, RS.Heartbeat:Connect(function()
+                if dragging and dragInput then
+                    updateInput(dragInput)
                 end
             end))
         end
 
         if options.resizable and resizeCorner then
             local resizing = false
-            local resizeStart
-            local startSize
+            local resizeStart, startSize
 
             resizeCorner.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                     resizing = true
                     resizeStart = input.Position
                     startSize = mainFrame.Size
-                    input.Changed:Connect(function()
+
+                    local conn
+                    conn = input.Changed:Connect(function()
                         if input.UserInputState == Enum.UserInputState.End then
                             resizing = false
+                            conn:Disconnect()
                         end
                     end)
                 end
             end)
 
-            table.insert(connections, RS.InputChanged:Connect(function(input)
-                if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                    local delta = input.Position - resizeStart
-                    local newSize = UDim2.new(startSize.X.Scale, startSize.X.Offset + delta.X, startSize.Y.Scale, startSize.Y.Offset + delta.Y)
-                    mainFrame.Size = newSize
+            table.insert(connections, RS.Heartbeat:Connect(function()
+                if resizing then
+                    local currentInput = UIS:GetMouseLocation() -- Fallback for mouse
+                    local delta = Vector2.new(currentInput.X, currentInput.Y) - resizeStart
+                    mainFrame.Size = UDim2.new(startSize.X.Scale, startSize.X.Offset + delta.X, startSize.Y.Scale, startSize.Y.Offset + delta.Y)
                 end
             end))
         end
@@ -487,60 +515,95 @@ function ForsakenLib:CreateWindow(title, options)
         tabButton.TextXAlignment = Enum.TextXAlignment.Left
         tabButton.Parent = sidebar
 
-        local iconLabel = Instance.new("ImageLabel")
-        iconLabel.Size = UDim2.new(0, 30, 0, 30)
-        iconLabel.Position = UDim2.new(0, 5, 0, 5)
-        iconLabel.BackgroundTransparency = 1
-        iconLabel.Image = icon or ""
-        iconLabel.Parent = tabButton
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 8)
+        btnCorner.Parent = tabButton
 
-        local tabContent = Instance.new("Frame")
+        if icon and icon ~= "" then
+            local iconLabel = Instance.new("ImageLabel")
+            iconLabel.Size = UDim2.new(0, 30, 0, 30)
+            iconLabel.Position = UDim2.new(0, 10, 0.5, -15)
+            iconLabel.BackgroundTransparency = 1
+            iconLabel.Image = icon
+            iconLabel.ScaleType = Enum.ScaleType.Fit
+            iconLabel.Parent = tabButton
+        end
+
+        local tabContent = Instance.new("ScrollingFrame") -- Use ScrollingFrame for better overflow handling
+        tabContent.Name = name .. "Content"
         tabContent.Size = UDim2.new(1, 0, 1, 0)
         tabContent.BackgroundTransparency = 1
+        tabContent.BorderSizePixel = 0
+        tabContent.ScrollBarThickness = 6
+        tabContent.ScrollBarImageColor3 = theme.Accent
+        tabContent.CanvasSize = UDim2.new(0, 0, 0, 0)
         tabContent.Visible = false
-        tabContent.Parent = content
+        tabContent.Parent = mobilemode and sidebar or content -- For mobile, tabs in sidebar; desktop in content
 
         local tabLayout = Instance.new("UIListLayout")
         tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
         tabLayout.Padding = UDim.new(0, 10)
         tabLayout.Parent = tabContent
 
+        tabLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            tabContent.CanvasSize = UDim2.new(0, 0, 0, tabLayout.AbsoluteContentSize.Y + 20)
+        end)
+
         local tabPadding = Instance.new("UIPadding")
         tabPadding.PaddingLeft = UDim.new(0, 10)
         tabPadding.PaddingRight = UDim.new(0, 10)
         tabPadding.PaddingTop = UDim.new(0, 10)
+        tabPadding.PaddingBottom = UDim.new(0, 10)
         tabPadding.Parent = tabContent
 
-        tabButton.MouseButton1Click:Connect(function()
+        local function selectTab()
             for _, t in pairs(tabs) do
                 t.content.Visible = false
                 t.button.BackgroundColor3 = theme.Panel
+                t.button.TextTransparency = 0
+                if t.icon then t.icon.ImageTransparency = 0 end
             end
             tabContent.Visible = true
             tabButton.BackgroundColor3 = theme.Background
+            tabButton.TextTransparency = mobilemode and 1 or 0 -- Hide text on mobile
+            if tab.icon then tab.icon.ImageTransparency = mobilemode and 0.5 or 0 end
             currentTab = tab
             if mobilemode and not isLarge then
                 isOpen = false
                 TS:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, -drawerWidth, 0, 0)}):Play()
                 overlay.Visible = false
             end
+        end
+
+        tabButton.MouseButton1Click:Connect(selectTab)
+        tabButton.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                TS:Create(tabButton, TweenInfo.new(0.1), {BackgroundColor3 = theme.Accent}):Play()
+            end
+        end)
+        tabButton.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                TS:Create(tabButton, TweenInfo.new(0.1), {BackgroundColor3 = theme.Panel}):Play()
+            end
         end)
 
         tab.button = tabButton
         tab.content = tabContent
+        tab.icon = iconLabel
         table.insert(tabs, tab)
 
         if #tabs == 1 then
-            tabButton.MouseButton1Click:Fire()
+            selectTab()
         end
 
         -- CreateSection
         function tab:CreateSection(title)
             local section = Instance.new("Frame")
+            section.Name = title .. "Section"
             section.Size = UDim2.new(1, 0, 0, 0)
-            section.AutomaticSize = Enum.AutomaticSize.Y
             section.BackgroundColor3 = theme.Panel
             section.BorderSizePixel = 0
+            section.AutomaticSize = Enum.AutomaticSize.Y
             section.Parent = tabContent
 
             local secCorner = Instance.new("UICorner")
@@ -548,8 +611,9 @@ function ForsakenLib:CreateWindow(title, options)
             secCorner.Parent = section
 
             local secShadow = Instance.new("UIStroke")
-            secShadow.Transparency = theme.ShadowOpacity
+            secShadow.Transparency = 1 - theme.ShadowOpacity
             secShadow.Color = theme.Shadow
+            secShadow.Thickness = 1
             secShadow.Parent = section
 
             local secTitle = Instance.new("TextLabel")
@@ -559,35 +623,40 @@ function ForsakenLib:CreateWindow(title, options)
             secTitle.TextColor3 = theme.Text
             secTitle.Font = theme.Font
             secTitle.TextSize = 16
+            secTitle.TextXAlignment = Enum.TextXAlignment.Left
             secTitle.Parent = section
 
             local secContent = Instance.new("Frame")
-            secContent.Size = UDim2.new(1, 0, 0, 0)
-            secContent.AutomaticSize = Enum.AutomaticSize.Y
+            secContent.Name = "Content"
+            secContent.Size = UDim2.new(1, 0, 1, -25)
+            secContent.Position = UDim2.new(0, 0, 0, 25)
             secContent.BackgroundTransparency = 1
+            secContent.AutomaticSize = Enum.AutomaticSize.Y
             secContent.Parent = section
 
             local secLayout = Instance.new("UIListLayout")
+            secLayout.SortOrder = Enum.SortOrder.LayoutOrder
             secLayout.Padding = UDim.new(0, 5)
             secLayout.Parent = secContent
 
             local secPadding = Instance.new("UIPadding")
-            secPadding.PaddingLeft = UDim.new(0, 5)
-            secPadding.PaddingRight = UDim.new(0, 5)
-            secPadding.PaddingBottom = UDim.new(0, 5)
+            secPadding.PaddingLeft = UDim.new(0, 10)
+            secPadding.PaddingRight = UDim.new(0, 10)
             secPadding.PaddingTop = UDim.new(0, 5)
+            secPadding.PaddingBottom = UDim.new(0, 5)
             secPadding.Parent = secContent
 
             return secContent
         end
 
-        -- AddButton
+        -- AddButton (updated for visibility)
         function tab:AddButton(label, callback)
             local button = Instance.new("TextButton")
-            button.Size = UDim2.new(1, 0, 0, 30)
+            button.Name = label .. "Button"
+            button.Size = UDim2.new(1, 0, 0, 35)
             button.BackgroundColor3 = theme.Accent
             button.Text = label
-            button.TextColor3 = theme.Text
+            button.TextColor3 = Color3.new(1,1,1) -- White text for contrast
             button.Font = theme.Font
             button.TextSize = 14
             button.Parent = tab.content
@@ -598,11 +667,14 @@ function ForsakenLib:CreateWindow(title, options)
 
             button.MouseButton1Click:Connect(function()
                 pcall(callback)
+                TS:Create(button, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1, 0, 0, 32)}):Play()
+                task.wait(0.1)
+                TS:Create(button, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(1, 0, 0, 35)}):Play()
             end)
 
             button.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                    TS:Create(button, TweenInfo.new(0.1), {BackgroundColor3 = theme.Accent:Lerp(Color3.new(0, 0, 0), 0.1)}):Play()
+                    TS:Create(button, TweenInfo.new(0.1), {BackgroundColor3 = theme.Accent:lerp(Color3.new(0,0,0), 0.2)}):Play()
                 end
             end)
 
@@ -615,17 +687,17 @@ function ForsakenLib:CreateWindow(title, options)
             return button
         end
 
-        -- AddToggle
+        -- AddToggle (fixed sliding indicator)
         function tab:AddToggle(label, default, callback)
             local state = default or false
-
             local toggle = Instance.new("Frame")
-            toggle.Size = UDim2.new(1, 0, 0, 30)
+            toggle.Name = label .. "Toggle"
+            toggle.Size = UDim2.new(1, 0, 0, 35)
             toggle.BackgroundTransparency = 1
             toggle.Parent = tab.content
 
             local toggleLabel = Instance.new("TextLabel")
-            toggleLabel.Size = UDim2.new(1, -50, 1, 0)
+            toggleLabel.Size = UDim2.new(1, -60, 1, 0)
             toggleLabel.BackgroundTransparency = 1
             toggleLabel.Text = label
             toggleLabel.TextColor3 = theme.Text
@@ -635,23 +707,24 @@ function ForsakenLib:CreateWindow(title, options)
             toggleLabel.Parent = toggle
 
             local toggleButton = Instance.new("Frame")
-            toggleButton.Size = UDim2.new(0, 40, 0, 20)
-            toggleButton.Position = UDim2.new(1, -40, 0.5, -10)
+            toggleButton.Size = UDim2.new(0, 50, 0, 25)
+            toggleButton.Position = UDim2.new(1, -55, 0.5, -12.5)
             toggleButton.BackgroundColor3 = theme.Panel
+            toggleButton.BorderSizePixel = 0
             toggleButton.Parent = toggle
 
             local toggleCorner = Instance.new("UICorner")
-            toggleCorner.CornerRadius = UDim.new(0, 10)
+            toggleCorner.CornerRadius = UDim.new(0, 12.5)
             toggleCorner.Parent = toggleButton
 
             local indicator = Instance.new("Frame")
-            indicator.Size = UDim2.new(0, 18, 0, 18)
-            indicator.Position = state and UDim2.new(1, -19, 0, 1) or UDim2.new(0, 1, 0, 1)
+            indicator.Size = UDim2.new(0, 21, 0, 21)
+            indicator.Position = state and UDim2.new(1, -22, 0.5, -10.5) or UDim2.new(0, 2, 0.5, -10.5)
             indicator.BackgroundColor3 = theme.Accent
             indicator.Parent = toggleButton
 
             local indCorner = Instance.new("UICorner")
-            indCorner.CornerRadius = UDim.new(0, 9)
+            indCorner.CornerRadius = UDim.new(0, 10.5)
             indCorner.Parent = indicator
 
             local toggleBtn = Instance.new("TextButton")
@@ -662,19 +735,20 @@ function ForsakenLib:CreateWindow(title, options)
 
             toggleBtn.MouseButton1Click:Connect(function()
                 state = not state
-                local goal = state and UDim2.new(1, -19, 0, 1) or UDim2.new(0, 1, 0, 1)
-                TS:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = goal}):Play()
+                local targetPos = state and UDim2.new(1, -22, 0.5, -10.5) or UDim2.new(0, 2, 0.5, -10.5)
+                TS:Create(indicator, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Position = targetPos}):Play()
                 pcall(callback, state)
             end)
 
             return toggle
         end
 
-        -- AddSlider
+        -- AddSlider (improved dragging)
         function tab:AddSlider(label, min, max, default, callback)
             local value = default or min
             local slider = Instance.new("Frame")
-            slider.Size = UDim2.new(1, 0, 0, 40)
+            slider.Name = label .. "Slider"
+            slider.Size = UDim2.new(1, 0, 0, 50)
             slider.BackgroundTransparency = 1
             slider.Parent = tab.content
 
@@ -688,31 +762,33 @@ function ForsakenLib:CreateWindow(title, options)
             sliderLabel.Parent = slider
 
             local sliderBar = Instance.new("Frame")
-            sliderBar.Size = UDim2.new(1, 0, 0, 10)
-            sliderBar.Position = UDim2.new(0, 0, 0, 25)
+            sliderBar.Size = UDim2.new(1, 0, 0, 8)
+            sliderBar.Position = UDim2.new(0, 0, 1, 0)
             sliderBar.BackgroundColor3 = theme.Panel
+            sliderBar.BorderSizePixel = 0
             sliderBar.Parent = slider
 
             local barCorner = Instance.new("UICorner")
-            barCorner.CornerRadius = UDim.new(0, 5)
+            barCorner.CornerRadius = UDim.new(0, 4)
             barCorner.Parent = sliderBar
 
             local fill = Instance.new("Frame")
             fill.Size = UDim2.new((value - min) / (max - min), 0, 1, 0)
             fill.BackgroundColor3 = theme.Accent
+            fill.BorderSizePixel = 0
             fill.Parent = sliderBar
 
             local fillCorner = Instance.new("UICorner")
-            fillCorner.CornerRadius = UDim.new(0, 5)
+            fillCorner.CornerRadius = UDim.new(0, 4)
             fillCorner.Parent = fill
 
+            local dragging = false
             local sliderBtn = Instance.new("TextButton")
             sliderBtn.Size = UDim2.new(1, 0, 1, 0)
             sliderBtn.BackgroundTransparency = 1
             sliderBtn.Text = ""
             sliderBtn.Parent = sliderBar
 
-            local dragging = false
             sliderBtn.InputBegan:Connect(function(input)
                 if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                     dragging = true
@@ -725,11 +801,12 @@ function ForsakenLib:CreateWindow(title, options)
                 end
             end)
 
-            table.insert(connections, UIS.InputChanged:Connect(function(input)
-                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                    local rel = math.clamp((input.Position.X - sliderBar.AbsolutePosition.X) / sliderBar.AbsoluteSize.X, 0, 1)
-                    value = math.floor(min + (max - min) * rel + 0.5)
-                    fill.Size = UDim2.new(rel, 0, 1, 0)
+            table.insert(connections, RS.Heartbeat:Connect(function()
+                if dragging then
+                    local mousePos = UIS:GetMouseLocation()
+                    local relPos = math.clamp((mousePos.X - sliderBar.AbsolutePosition.X) / sliderBar.AbsoluteSize.X, 0, 1)
+                    value = math.floor(min + (max - min) * relPos + 0.5)
+                    fill.Size = UDim2.new(relPos, 0, 1, 0)
                     sliderLabel.Text = label .. ": " .. value
                     pcall(callback, value)
                 end
@@ -738,15 +815,16 @@ function ForsakenLib:CreateWindow(title, options)
             return slider
         end
 
-        -- AddTextbox
+        -- AddTextbox (focus handling improved)
         function tab:AddTextbox(label, default, callback)
             local textbox = Instance.new("Frame")
-            textbox.Size = UDim2.new(1, 0, 0, 30)
+            textbox.Name = label .. "Textbox"
+            textbox.Size = UDim2.new(1, 0, 0, 35)
             textbox.BackgroundTransparency = 1
             textbox.Parent = tab.content
 
             local tbLabel = Instance.new("TextLabel")
-            tbLabel.Size = UDim2.new(0.5, 0, 1, 0)
+            tbLabel.Size = UDim2.new(1, 0, 0.5, 0)
             tbLabel.BackgroundTransparency = 1
             tbLabel.Text = label
             tbLabel.TextColor3 = theme.Text
@@ -755,50 +833,55 @@ function ForsakenLib:CreateWindow(title, options)
             tbLabel.Parent = textbox
 
             local tbInput = Instance.new("TextBox")
-            tbInput.Size = UDim2.new(0.5, 0, 1, 0)
-            tbInput.Position = UDim2.new(0.5, 0, 0, 0)
+            tbInput.Size = UDim2.new(1, 0, 0.5, 0)
+            tbInput.Position = UDim2.new(0, 0, 0.5, 0)
             tbInput.BackgroundColor3 = theme.Panel
             tbInput.Text = default or ""
+            tbInput.PlaceholderText = "Enter text..."
             tbInput.TextColor3 = theme.Text
+            tbInput.PlaceholderColor3 = theme.Text:lerp(Color3.new(1,1,1), 0.5)
             tbInput.Font = theme.Font
             tbInput.TextSize = 14
+            tbInput.ClearTextOnFocus = false
             tbInput.Parent = textbox
 
             local tbCorner = Instance.new("UICorner")
             tbCorner.CornerRadius = UDim.new(0, 6)
             tbCorner.Parent = tbInput
 
-            tbInput.FocusLost:Connect(function(enter)
-                if enter then
-                    pcall(callback, tbInput.Text)
-                end
+            tbInput.FocusLost:Connect(function(enterPressed)
+                pcall(callback, tbInput.Text)
             end)
 
             return tbInput
         end
 
-        -- AddDropdown
+        -- AddDropdown (scrolling list)
         function tab:AddDropdown(label, opts, default, callback)
+            if not opts or #opts == 0 then opts = {"Option1"} end
             local selected = default or opts[1]
+            local isOpen = false
             local drop = Instance.new("Frame")
-            drop.Size = UDim2.new(1, 0, 0, 30)
+            drop.Name = label .. "Dropdown"
+            drop.Size = UDim2.new(1, 0, 0, 35)
             drop.BackgroundTransparency = 1
             drop.Parent = tab.content
 
             local dropLabel = Instance.new("TextLabel")
-            dropLabel.Size = UDim2.new(0.5, 0, 1, 0)
+            dropLabel.Size = UDim2.new(1, -60, 1, 0)
             dropLabel.BackgroundTransparency = 1
             dropLabel.Text = label
             dropLabel.TextColor3 = theme.Text
             dropLabel.Font = theme.Font
             dropLabel.TextSize = 14
+            dropLabel.TextXAlignment = Enum.TextXAlignment.Left
             dropLabel.Parent = drop
 
             local dropButton = Instance.new("TextButton")
-            dropButton.Size = UDim2.new(0.5, 0, 1, 0)
-            dropButton.Position = UDim2.new(0.5, 0, 0, 0)
+            dropButton.Size = UDim2.new(0, 55, 1, 0)
+            dropButton.Position = UDim2.new(1, -60, 0, 0)
             dropButton.BackgroundColor3 = theme.Panel
-            dropButton.Text = selected
+            dropButton.Text = selected .. " ▼"
             dropButton.TextColor3 = theme.Text
             dropButton.Font = theme.Font
             dropButton.TextSize = 14
@@ -808,16 +891,19 @@ function ForsakenLib:CreateWindow(title, options)
             dropCorner.CornerRadius = UDim.new(0, 6)
             dropCorner.Parent = dropButton
 
-            local dropList = Instance.new("Frame")
-            dropList.Size = UDim2.new(1, 0, 0, 0)
-            dropList.Position = UDim2.new(0, 0, 1, 0)
+            local dropList = Instance.new("ScrollingFrame")
+            dropList.Size = UDim2.new(0, 55, 0, math.min(#opts * 25, 150))
+            dropList.Position = UDim2.new(1, -60, 1, 5)
             dropList.BackgroundColor3 = theme.Panel
+            dropList.BorderSizePixel = 0
+            dropList.ScrollBarThickness = 4
+            dropList.CanvasSize = UDim2.new(0, 0, 0, #opts * 25)
             dropList.Visible = false
-            dropList.AutomaticSize = Enum.AutomaticSize.Y
+            dropList.ScrollBarImageColor3 = theme.Accent
             dropList.Parent = dropButton
 
             local dropListLayout = Instance.new("UIListLayout")
-            dropListLayout.Padding = UDim.new(0, 2)
+            dropListLayout.Padding = UDim.new(0, 1)
             dropListLayout.Parent = dropList
 
             local dropListCorner = Instance.new("UICorner")
@@ -825,30 +911,33 @@ function ForsakenLib:CreateWindow(title, options)
             dropListCorner.Parent = dropList
 
             local dropListShadow = Instance.new("UIStroke")
-            dropListShadow.Transparency = theme.ShadowOpacity
+            dropListShadow.Transparency = 1 - theme.ShadowOpacity
             dropListShadow.Color = theme.Shadow
+            dropListShadow.Thickness = 1
             dropListShadow.Parent = dropList
 
-            for _, opt in pairs(opts) do
+            for i, opt in pairs(opts) do
                 local optBtn = Instance.new("TextButton")
-                optBtn.Size = UDim2.new(1, 0, 0, 25)
+                optBtn.Size = UDim2.new(1, 0, 0, 24)
                 optBtn.BackgroundTransparency = 1
                 optBtn.Text = opt
                 optBtn.TextColor3 = theme.Text
                 optBtn.Font = theme.Font
-                optBtn.TextSize = 14
+                optBtn.TextSize = 12
                 optBtn.Parent = dropList
 
                 optBtn.MouseButton1Click:Connect(function()
                     selected = opt
-                    dropButton.Text = selected
+                    dropButton.Text = selected .. " ▼"
+                    isOpen = false
                     dropList.Visible = false
                     pcall(callback, selected)
                 end)
             end
 
             dropButton.MouseButton1Click:Connect(function()
-                dropList.Visible = not dropList.Visible
+                isOpen = not isOpen
+                dropList.Visible = isOpen
             end)
 
             return drop
@@ -857,12 +946,14 @@ function ForsakenLib:CreateWindow(title, options)
         -- AddLabel
         function tab:AddLabel(text)
             local label = Instance.new("TextLabel")
-            label.Size = UDim2.new(1, 0, 0, 20)
+            label.Name = "Label_" .. text:gsub("%s", "_")
+            label.Size = UDim2.new(1, 0, 0, 25)
             label.BackgroundTransparency = 1
             label.Text = text
             label.TextColor3 = theme.Text
             label.Font = theme.Font
             label.TextSize = 14
+            label.TextWrapped = true
             label.Parent = tab.content
             return label
         end
@@ -870,23 +961,26 @@ function ForsakenLib:CreateWindow(title, options)
         -- AddKeybind
         function tab:AddKeybind(label, default, callback)
             local key = default or Enum.KeyCode.Unknown
+            local binding = false
             local keyFrame = Instance.new("Frame")
-            keyFrame.Size = UDim2.new(1, 0, 0, 30)
+            keyFrame.Name = label .. "Keybind"
+            keyFrame.Size = UDim2.new(1, 0, 0, 35)
             keyFrame.BackgroundTransparency = 1
             keyFrame.Parent = tab.content
 
             local keyLabel = Instance.new("TextLabel")
-            keyLabel.Size = UDim2.new(0.5, 0, 1, 0)
+            keyLabel.Size = UDim2.new(1, -60, 1, 0)
             keyLabel.BackgroundTransparency = 1
             keyLabel.Text = label
             keyLabel.TextColor3 = theme.Text
             keyLabel.Font = theme.Font
             keyLabel.TextSize = 14
+            keyLabel.TextXAlignment = Enum.TextXAlignment.Left
             keyLabel.Parent = keyFrame
 
             local keyButton = Instance.new("TextButton")
-            keyButton.Size = UDim2.new(0.5, 0, 1, 0)
-            keyButton.Position = UDim2.new(0.5, 0, 0, 0)
+            keyButton.Size = UDim2.new(0, 55, 1, 0)
+            keyButton.Position = UDim2.new(1, -60, 0, 0)
             keyButton.BackgroundColor3 = theme.Panel
             keyButton.Text = key.Name
             keyButton.TextColor3 = theme.Text
@@ -898,30 +992,35 @@ function ForsakenLib:CreateWindow(title, options)
             keyCorner.CornerRadius = UDim.new(0, 6)
             keyCorner.Parent = keyButton
 
-            local binding = false
             keyButton.MouseButton1Click:Connect(function()
                 binding = true
                 keyButton.Text = "..."
             end)
 
-            table.insert(connections, UIS.InputBegan:Connect(function(input, gp)
+            local bindConn
+            bindConn = UIS.InputBegan:Connect(function(input, gp)
                 if gp or not binding then return end
                 if input.UserInputType == Enum.UserInputType.Keyboard then
                     key = input.KeyCode
                     keyButton.Text = key.Name
                     binding = false
                     pcall(callback, key)
+                elseif input.KeyCode == Enum.KeyCode.Escape then
+                    keyButton.Text = key.Name
+                    binding = false
                 end
-            end))
+            end)
+            table.insert(connections, bindConn)
 
             return keyFrame
         end
 
-        -- AddColorPicker (simple preview, full implementation left for expansion)
+        -- AddColorPicker (basic, with preview click to toggle simple RGB)
         function tab:AddColorPicker(label, default, callback)
             local color = default or Color3.new(1, 1, 1)
             local picker = Instance.new("Frame")
-            picker.Size = UDim2.new(1, 0, 0, 30)
+            picker.Name = label .. "ColorPicker"
+            picker.Size = UDim2.new(1, 0, 0, 35)
             picker.BackgroundTransparency = 1
             picker.Parent = tab.content
 
@@ -935,24 +1034,29 @@ function ForsakenLib:CreateWindow(title, options)
             pickerLabel.Parent = picker
 
             local colorPreview = Instance.new("Frame")
-            colorPreview.Size = UDim2.new(0, 40, 0, 20)
-            colorPreview.Position = UDim2.new(1, -40, 0.5, -10)
+            colorPreview.Size = UDim2.new(0, 40, 0, 25)
+            colorPreview.Position = UDim2.new(1, -45, 0.5, -12.5)
             colorPreview.BackgroundColor3 = color
+            colorPreview.BorderSizePixel = 1
+            colorPreview.BorderColor3 = theme.Text
             colorPreview.Parent = picker
 
             local colorCorner = Instance.new("UICorner")
             colorCorner.CornerRadius = UDim.new(0, 6)
             colorCorner.Parent = colorPreview
 
-            -- Stub for full picker
-            local pickerButton = Instance.new("TextButton")
-            pickerButton.Size = UDim2.new(1, 0, 1, 0)
-            pickerButton.BackgroundTransparency = 1
-            pickerButton.Text = ""
-            pickerButton.Parent = colorPreview
+            local pickerToggle = Instance.new("TextButton")
+            pickerToggle.Size = UDim2.new(1, 0, 1, 0)
+            pickerToggle.BackgroundTransparency = 1
+            pickerToggle.Text = ""
+            pickerToggle.Parent = colorPreview
 
-            pickerButton.MouseButton1Click:Connect(function()
-                -- Future: Open color picker UI
+            -- Simple toggle for demo; full picker in future
+            local r, g, b = color.R * 255, color.G * 255, color.B * 255
+            pickerToggle.MouseButton1Click:Connect(function()
+                r = (r + 50) % 256
+                color = Color3.fromRGB(r, g, b)
+                colorPreview.BackgroundColor3 = color
                 pcall(callback, color)
             end)
 
@@ -962,14 +1066,15 @@ function ForsakenLib:CreateWindow(title, options)
         -- AddProgressBar
         function tab:AddProgressBar(label)
             local progress = Instance.new("Frame")
-            progress.Size = UDim2.new(1, 0, 0, 30)
+            progress.Name = label .. "Progress"
+            progress.Size = UDim2.new(1, 0, 0, 35)
             progress.BackgroundTransparency = 1
             progress.Parent = tab.content
 
             local progLabel = Instance.new("TextLabel")
             progLabel.Size = UDim2.new(1, 0, 0, 20)
             progLabel.BackgroundTransparency = 1
-            progLabel.Text = label
+            progLabel.Text = label .. ": 0%"
             progLabel.TextColor3 = theme.Text
             progLabel.Font = theme.Font
             progLabel.TextSize = 14
@@ -979,6 +1084,7 @@ function ForsakenLib:CreateWindow(title, options)
             progBar.Size = UDim2.new(1, 0, 0, 10)
             progBar.Position = UDim2.new(0, 0, 1, -10)
             progBar.BackgroundColor3 = theme.Panel
+            progBar.BorderSizePixel = 0
             progBar.Parent = progress
 
             local progCorner = Instance.new("UICorner")
@@ -988,6 +1094,7 @@ function ForsakenLib:CreateWindow(title, options)
             local progFill = Instance.new("Frame")
             progFill.Size = UDim2.new(0, 0, 1, 0)
             progFill.BackgroundColor3 = theme.Accent
+            progFill.BorderSizePixel = 0
             progFill.Parent = progBar
 
             local progFillCorner = Instance.new("UICorner")
@@ -997,14 +1104,17 @@ function ForsakenLib:CreateWindow(title, options)
             local function setValue(val)
                 val = math.clamp(val, 0, 1)
                 progFill.Size = UDim2.new(val, 0, 1, 0)
+                progLabel.Text = label .. ": " .. math.floor(val * 100) .. "%"
             end
 
+            setValue(0)
             return setValue
         end
 
-        -- TabDivider
+        -- AddDivider
         function tab:AddDivider()
             local divider = Instance.new("Frame")
+            divider.Name = "Divider"
             divider.Size = UDim2.new(1, 0, 0, 10)
             divider.BackgroundTransparency = 1
             divider.Parent = tab.content
@@ -1012,7 +1122,8 @@ function ForsakenLib:CreateWindow(title, options)
             local line = Instance.new("Frame")
             line.Size = UDim2.new(1, 0, 0, 1)
             line.Position = UDim2.new(0, 0, 0.5, 0)
-            line.BackgroundColor3 = theme.Panel
+            line.BackgroundColor3 = theme.Shadow
+            line.BorderSizePixel = 0
             line.Parent = divider
 
             return divider
@@ -1021,19 +1132,18 @@ function ForsakenLib:CreateWindow(title, options)
         return tab
     end
 
-    -- SetMobileModeEnabled
+    -- SetMobileModeEnabled (stub)
     function Window:SetMobileModeEnabled(enabled)
-        -- To change mode, would require rebuilding the UI, not implemented in v1.0
-        warn("[ForsakenLib] Mobile mode change after creation not supported in v1.0")
+        warn("[ForsakenLib] Mobile mode change after creation not supported in v1.0.1. Restart with option.")
     end
 
     -- Notify
     function Window:Notify(text, duration)
+        duration = duration or 5
         local toast = Instance.new("Frame")
         toast.Size = UDim2.new(1, 0, 0, 40)
         toast.BackgroundColor3 = theme.Panel
         toast.BorderSizePixel = 0
-        toast.Transparency = 1
         toast.Parent = notifications
 
         local toastCorner = Instance.new("UICorner")
@@ -1041,66 +1151,88 @@ function ForsakenLib:CreateWindow(title, options)
         toastCorner.Parent = toast
 
         local toastText = Instance.new("TextLabel")
-        toastText.Size = UDim2.new(1, 0, 1, 0)
+        toastText.Size = UDim2.new(1, -10, 1, 0)
+        toastText.Position = UDim2.new(0, 5, 0, 0)
         toastText.BackgroundTransparency = 1
         toastText.Text = text
         toastText.TextColor3 = theme.Text
         toastText.Font = theme.Font
         toastText.TextSize = 14
+        toastText.TextWrapped = true
         toastText.Parent = toast
 
-        TS:Create(toast, TweenInfo.new(0.3), {Transparency = 0}):Play()
+        toast.BackgroundTransparency = 1
+        TS:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {BackgroundTransparency = 0}):Play()
 
-        task.delay(duration or 5, function()
-            TS:Create(toast, TweenInfo.new(0.3), {Transparency = 1}):Play()
+        task.delay(duration, function()
+            TS:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {BackgroundTransparency = 1}):Play()
             task.wait(0.3)
             toast:Destroy()
         end)
     end
 
-    -- AddFPSMonitor
+    -- AddFPSMonitor (fixed positioning)
     function Window:AddFPSMonitor()
-        local fpsLabel = Instance.new("TextLabel")
-        fpsLabel.Size = UDim2.new(0, 80, 0, 20)
-        fpsLabel.Position = UDim2.new(1, -90, 0, 5)
-        fpsLabel.BackgroundTransparency = 1
-        fpsLabel.TextColor3 = theme.Text
-        fpsLabel.Font = theme.Font
-        fpsLabel.TextSize = 14
-        fpsLabel.Parent = topBar or mainFrame -- Fallback to mainFrame for mobile
+        if topBar then
+            local fpsLabel = Instance.new("TextLabel")
+            fpsLabel.Size = UDim2.new(0, 80, 0, 20)
+            fpsLabel.Position = UDim2.new(1, -90, 0, 5)
+            fpsLabel.BackgroundTransparency = 1
+            fpsLabel.TextColor3 = theme.Text
+            fpsLabel.Font = theme.Font
+            fpsLabel.TextSize = 12
+            fpsLabel.Text = "FPS: --"
+            fpsLabel.Parent = topBar
 
-        local last = tick()
-        local frames = 0
+            local lastTime = tick()
+            local frameCount = 0
 
-        table.insert(connections, RS.RenderStepped:Connect(function()
-            frames = frames + 1
-            if tick() - last >= 1 then
-                fpsLabel.Text = "FPS: " .. frames
-                frames = 0
-                last = tick()
-            end
-        end))
+            local fpsConn = RS.RenderStepped:Connect(function()
+                frameCount = frameCount + 1
+                if tick() - lastTime >= 1 then
+                    fpsLabel.Text = "FPS: " .. math.floor(frameCount)
+                    frameCount = 0
+                    lastTime = tick()
+                end
+            end)
 
-        return fpsLabel
+            table.insert(connections, fpsConn)
+            return fpsLabel
+        else
+            warn("[ForsakenLib] FPS Monitor only available in desktop mode.")
+        end
     end
+
+    -- Window unload
+    function Window:Unload()
+        for _, conn in pairs(connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        screenGui:Destroy()
+    end
+
+    -- Global unload fallback
+    function ForsakenLib:Unload()
+        for _, conn in pairs(globalConnections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        -- Assumes single window; extend for multi
+        warn("[ForsakenLib] Unload called - manual cleanup recommended for multi-window.")
+    end
+
+    table.insert(globalConnections, function()
+        for _, conn in pairs(connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        screenGui:Destroy()
+    end)
 
     return Window
 end
 
--- SetTheme
+-- SetTheme (stub)
 function ForsakenLib:SetTheme(themeName)
-    -- Stub: Full theme application to existing elements requires tracking, planned for future
-    warn("[ForsakenLib] Full theme switching not implemented in v1.0")
-end
-
--- Unload
-function ForsakenLib:Unload()
-    -- Assuming screenGui is accessible, but in practice, track all created GUIs
-    warn("[ForsakenLib] Unload requires tracking all instances, partial in v1.0")
-    for _, conn in pairs(connections) do
-        conn:Disconnect()
-    end
-    -- screenGui:Destroy() would be here if global
+    warn("[ForsakenLib] Dynamic theme switching planned for v1.1 - restart window with new theme option.")
 end
 
 return ForsakenLib
