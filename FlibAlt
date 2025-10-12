@@ -1,721 +1,197 @@
--- ForsakenLib v1.0.1 (fixed)
--- Retro Neumorphic Fluxus UI Framework
--- Fixes: color picker crash, notification tween bug, mobile default
--- Nostalgic. Modern. Executor-safe.
+--[[
+    ForsakenLib v1.1 | Fluxus Mobile Edition
+    Retro Neumorphic Fluxus UI Library
+    Style: Cyan / Black / Pink
+    No dependencies • Executor-safe • Luau clean
+--]]
 
-local ForsakenLib = {}
-ForsakenLib.Version = "1.0.1"
-
--- safe wrappers
-local function safeEval(func, ...)
-    local ok, res = pcall(func, ...)
-    return ok and res or nil
-end
-local function safeCall(func, ...)
-    local ok, err = pcall(func, ...)
-    if not ok then warn("[ForsakenLib] safeCall error:", tostring(err)) end
-    return ok, err
-end
-
-local ExecutorName = safeEval(function()
-    if type(getexecutorname) == "function" then
-        local ok, name = pcall(getexecutorname)
-        if ok and name then return name end
-    end
-    return "Unknown"
-end) or "Unknown"
-ForsakenLib.Executor = ExecutorName
-
--- Parent selection (gethui / CoreGui / PlayerGui)
-local function getParentGui()
-    -- try gethui
-    if type(gethui) == "function" then
-        local ok, g = pcall(gethui)
-        if ok and g then return g end
-    end
-    -- CoreGui
-    local ok, cg = pcall(function() return game:GetService("CoreGui") end)
-    if ok and cg then return cg end
-    -- PlayerGui
-    local ok2, pl = pcall(function() return game.Players.LocalPlayer end)
-    if ok2 and pl then
-        local pg = pl:FindFirstChild("PlayerGui") or pl:WaitForChild("PlayerGui", 3)
-        if pg then return pg end
-    end
-    warn("[ForsakenLib] Could not find a safe parent GUI (gethui/CoreGui/PlayerGui). UI may not display.")
-    return nil
-end
-
-local ParentGui = getParentGui()
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
--- defaults
-local DEFAULTS = {
-    CornerRadius = UDim.new(0, 10),
-    Animation = {
-        Time = 0.18,
-        Info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    },
-    Theme = "ClassicGray"
+local ForsakenLib = {}
+ForsakenLib.Version = "1.1.0"
+
+-- // CONFIG //
+local CONFIG = {
+    DrawerHeight = 260,
+    AccentColor = Color3.fromRGB(0, 255, 255), -- cyan
+    BaseColor = Color3.fromRGB(15, 15, 20),    -- black
+    HighlightColor = Color3.fromRGB(255, 105, 180), -- pink accent
+    ButtonSize = UDim2.fromOffset(48, 48),
 }
 
-local PRESET_THEMES = {
-    ClassicGray = {
-        Background = Color3.fromRGB(240,240,240),
-        Panel = Color3.fromRGB(225,225,225),
-        Text = Color3.fromRGB(30,30,30),
-        Accent = Color3.fromRGB(64,160,255),
-        Glow = Color3.fromRGB(255,255,255)
-    },
-    MidnightDark = {
-        Background = Color3.fromRGB(20,20,25),
-        Panel = Color3.fromRGB(30,30,35),
-        Text = Color3.fromRGB(220,220,230),
-        Accent = Color3.fromRGB(90,160,255),
-        Glow = Color3.fromRGB(40,40,60)
-    },
-    AzureBlue = {
-        Background = Color3.fromRGB(235,245,255),
-        Panel = Color3.fromRGB(220,235,255),
-        Text = Color3.fromRGB(20,30,40),
-        Accent = Color3.fromRGB(30,120,255),
-        Glow = Color3.fromRGB(230,245,255)
-    },
-    ToxinGreen = {
-        Background = Color3.fromRGB(10,14,10),
-        Panel = Color3.fromRGB(16,24,16),
-        Text = Color3.fromRGB(200,255,200),
-        Accent = Color3.fromRGB(80,255,120),
-        Glow = Color3.fromRGB(30,40,30)
-    }
-}
+-- // PARENT //
+local parent = gethui and gethui() or game:FindFirstChildOfClass("CoreGui") or game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
-local ThemeState = {
-    current = PRESET_THEMES[DEFAULTS.Theme],
-    name = DEFAULTS.Theme
-}
+-- // MAIN STRUCTURE //
+local Drawer = Instance.new("Frame")
+Drawer.Name = "Forsaken_Drawer"
+Drawer.Size = UDim2.new(1, 0, 0, CONFIG.DrawerHeight)
+Drawer.Position = UDim2.new(0, 0, 1, 0)
+Drawer.BackgroundColor3 = CONFIG.BaseColor
+Drawer.BorderSizePixel = 0
+Drawer.BackgroundTransparency = 0.1
+Drawer.ZIndex = 100
+Drawer.Parent = parent
 
--- basic helpers
-local function new(class, props)
-    local inst = Instance.new(class)
-    if props then
-        for k,v in pairs(props) do
-            if k == "Parent" then inst.Parent = v
-            else
-                pcall(function() inst[k] = v end)
-            end
-        end
-    end
-    return inst
+local Corner = Instance.new("UICorner", Drawer)
+Corner.CornerRadius = UDim.new(0, 16)
+
+local Layout = Instance.new("UIListLayout", Drawer)
+Layout.FillDirection = Enum.FillDirection.Vertical
+Layout.Padding = UDim.new(0, 8)
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+-- // DRAGGABLE "F" BUTTON //
+local ToggleButton = Instance.new("ImageButton")
+ToggleButton.Name = "Forsaken_Toggle"
+ToggleButton.Size = CONFIG.ButtonSize
+ToggleButton.Position = UDim2.new(0.5, -24, 1, -64)
+ToggleButton.AnchorPoint = Vector2.new(0.5, 0.5)
+ToggleButton.BackgroundColor3 = CONFIG.BaseColor
+ToggleButton.ImageColor3 = CONFIG.AccentColor
+ToggleButton.Image = "rbxassetid://7734053427" -- stylized F
+ToggleButton.ZIndex = 101
+ToggleButton.Active = true
+ToggleButton.Draggable = true
+ToggleButton.Parent = parent
+
+local CornerBtn = Instance.new("UICorner", ToggleButton)
+CornerBtn.CornerRadius = UDim.new(0, 10)
+
+-- subtle drop shadow
+local Shadow = Instance.new("UIStroke", ToggleButton)
+Shadow.Thickness = 1.5
+Shadow.Color = CONFIG.HighlightColor
+Shadow.Transparency = 0.4
+
+-- // ANIMATION //
+local isOpen = false
+local function toggleDrawer()
+	isOpen = not isOpen
+	TweenService:Create(Drawer, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = isOpen and UDim2.new(0, 0, 1, -CONFIG.DrawerHeight) or UDim2.new(0, 0, 1, 0)
+	}):Play()
+
+	TweenService:Create(ToggleButton, TweenInfo.new(0.25), {
+		Rotation = isOpen and 180 or 0
+	}):Play()
+end
+ToggleButton.MouseButton1Click:Connect(toggleDrawer)
+
+-- // ELEMENT HELPERS //
+local function createBaseElement(title)
+	local element = Instance.new("Frame")
+	element.Name = title
+	element.Size = UDim2.new(0.95, 0, 0, 40)
+	element.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+	element.BorderSizePixel = 0
+	element.BackgroundTransparency = 0.1
+	element.ZIndex = 101
+
+	local corner = Instance.new("UICorner", element)
+	corner.CornerRadius = UDim.new(0, 10)
+
+	local label = Instance.new("TextLabel", element)
+	label.BackgroundTransparency = 1
+	label.Size = UDim2.new(1, -12, 1, 0)
+	label.Position = UDim2.new(0, 6, 0, 0)
+	label.Font = Enum.Font.SourceSansBold
+	label.Text = title
+	label.TextColor3 = CONFIG.AccentColor
+	label.TextSize = 18
+	label.TextXAlignment = Enum.TextXAlignment.Left
+
+	return element
 end
 
-local function tween(inst, props, info)
-    if not inst then return end
-    local tinfo = info or DEFAULTS.Animation.Info
-    pcall(function() TweenService:Create(inst, tinfo, props):Play() end)
+-- // BUTTON //
+function ForsakenLib:AddButton(title, callback)
+	local btn = createBaseElement(title)
+	btn.BackgroundColor3 = CONFIG.AccentColor
+	btn.TextLabel.TextColor3 = CONFIG.BaseColor
+	btn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			TweenService:Create(btn, TweenInfo.new(0.1), {BackgroundColor3 = CONFIG.HighlightColor}):Play()
+			task.wait(0.1)
+			TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = CONFIG.AccentColor}):Play()
+			if callback then pcall(callback) end
+		end
+	end)
+	btn.Parent = Drawer
 end
 
-local function clamp(val, a, b) return math.max(a, math.min(b, val)) end
+-- // TOGGLE //
+function ForsakenLib:AddToggle(title, default, callback)
+	local element = createBaseElement(title)
+	local toggleBtn = Instance.new("Frame", element)
+	toggleBtn.Size = UDim2.new(0, 40, 0, 20)
+	toggleBtn.AnchorPoint = Vector2.new(1, 0.5)
+	toggleBtn.Position = UDim2.new(1, -8, 0.5, 0)
+	toggleBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
 
--- track connections for cleanup
-local _connections = {}
-local function trackConnection(conn)
-    if conn then table.insert(_connections, conn) end
+	local corner = Instance.new("UICorner", toggleBtn)
+	corner.CornerRadius = UDim.new(1, 0)
+
+	local indicator = Instance.new("Frame", toggleBtn)
+	indicator.Size = UDim2.new(0, 18, 0, 18)
+	indicator.Position = UDim2.new(default and 1 or 0, default and -19 or 1, 0.5, -9)
+	indicator.BackgroundColor3 = default and CONFIG.AccentColor or CONFIG.HighlightColor
+	indicator.ZIndex = 103
+
+	local corner2 = Instance.new("UICorner", indicator)
+	corner2.CornerRadius = UDim.new(1, 0)
+
+	local state = default
+	element.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			state = not state
+			TweenService:Create(indicator, TweenInfo.new(0.2), {
+				Position = UDim2.new(state and 1 or 0, state and -19 or 1, 0.5, -9),
+				BackgroundColor3 = state and CONFIG.AccentColor or CONFIG.HighlightColor
+			}):Play()
+			if callback then pcall(callback, state) end
+		end
+	end)
+	element.Parent = Drawer
 end
 
--- class prototypes
-local function classPrototype() local p = {}; p.__index = p; return p end
-local WindowProto = classPrototype()
-local TabProto = classPrototype()
-local SectionProto = classPrototype()
-
--- UI helpers
-local function makeNeumorphicFrame(parent, size, pos, cornerRadius)
-    local frame = new("Frame", {
-        Parent = parent,
-        Size = size or UDim2.new(0, 300, 0, 200),
-        Position = pos or UDim2.new(0,0,0,0),
-        BackgroundColor3 = ThemeState.current.Panel,
-        BorderSizePixel = 0
-    })
-    new("UICorner", {Parent = frame, CornerRadius = cornerRadius or DEFAULTS.CornerRadius})
-    return frame
+-- // LABEL //
+function ForsakenLib:AddLabel(text)
+	local label = createBaseElement(text)
+	label.BackgroundTransparency = 1
+	label.TextLabel.TextColor3 = CONFIG.HighlightColor
+	label.TextLabel.TextSize = 16
+	label.Parent = Drawer
 end
 
-local function makeTextLabel(parent, props)
-    props = props or {}
-    local lbl = new("TextLabel", {
-        Parent = parent,
-        Size = props.Size or UDim2.new(1,0,0,20),
-        Position = props.Position or UDim2.new(0,0,0,0),
-        BackgroundTransparency = props.BackgroundTransparency or 1,
-        Text = props.Text or "",
-        TextColor3 = props.TextColor3 or ThemeState.current.Text,
-        TextSize = props.TextSize or 14,
-        Font = props.Font or Enum.Font.SourceSans,
-        TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left,
-        TextYAlignment = props.TextYAlignment or Enum.TextYAlignment.Center,
-        TextWrapped = props.TextWrapped or false,
-        RichText = props.RichText or false
-    })
-    return lbl
+-- // NOTIFY //
+function ForsakenLib:Notify(title, msg, time)
+	local note = Instance.new("TextLabel")
+	note.Size = UDim2.new(0.9, 0, 0, 40)
+	note.Position = UDim2.new(0.05, 0, 1, -50)
+	note.BackgroundColor3 = CONFIG.BaseColor
+	note.TextColor3 = CONFIG.AccentColor
+	note.Font = Enum.Font.SourceSansBold
+	note.TextSize = 18
+	note.Text = title .. " | " .. msg
+	note.ZIndex = 200
+	note.Parent = parent
+
+	local corner = Instance.new("UICorner", note)
+	corner.CornerRadius = UDim.new(0, 10)
+
+	TweenService:Create(note, TweenInfo.new(0.3), {Position = UDim2.new(0.05, 0, 1, -120)}):Play()
+	task.wait(time or 2)
+	TweenService:Create(note, TweenInfo.new(0.3), {Position = UDim2.new(0.05, 0, 1, 0)}):Play()
+	task.wait(0.3)
+	note:Destroy()
 end
 
--- Notifications
-local NotificationsGui, NotificationsContainer
-local function ensureNotificationsGui()
-    if NotificationsGui and NotificationsGui.Parent then return NotificationsGui end
-    local parent = ParentGui
-    if not parent then return nil end
-    NotificationsGui = new("ScreenGui", {Parent = parent, Name = "Forsaken_Notifications", ResetOnSpawn = false})
-    NotificationsContainer = new("Frame", {
-        Parent = NotificationsGui,
-        BackgroundTransparency = 1,
-        Size = UDim2.new(0, 320, 0, 200),
-        Position = UDim2.new(1, -340, 0, 24)
-    })
-    new("UIListLayout", {Parent = NotificationsContainer, SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Top, Padding = UDim.new(0, 8)})
-    return NotificationsGui
-end
-
-local function showNotification(text, duration)
-    duration = duration or 3
-    local gui = ensureNotificationsGui()
-    if not gui then return end
-    local container = NotificationsContainer
-    local frame = new("Frame", {
-        Parent = container,
-        Size = UDim2.new(1, 0, 0, 56),
-        BackgroundColor3 = ThemeState.current.Panel,
-        BorderSizePixel = 0,
-        LayoutOrder = 1,
-        ClipsDescendants = true,
-        AnchorPoint = Vector2.new(1,0),
-        Position = UDim2.new(1, 0, 0, 0) -- start off-screen to the right of its container's coordinate space
-    })
-    new("UICorner", {Parent = frame, CornerRadius = DEFAULTS.CornerRadius})
-    makeTextLabel(frame, {Text = text, Size = UDim2.new(1, -16, 1, -8), Position = UDim2.new(0, 8, 0, 8), TextSize = 14})
-    -- animate in: move to Position 0,0 relative to container
-    tween(frame, {Position = UDim2.new(0, 0, 0, 0)}, DEFAULTS.Animation.Info)
-    delay(duration, function()
-        if frame and frame.Parent then
-            tween(frame, {Position = UDim2.new(1, 0, 0, 0)}, DEFAULTS.Animation.Info)
-            delay(0.2, function() pcall(function() if frame and frame.Parent then frame:Destroy() end end) end)
-        end
-    end)
-end
-
-ForsakenLib.Notify = function(text, duration)
-    pcall(function() showNotification(text, duration) end)
-end
-
--- Core structures
-local _windows = {}
-
-local function makeTopBar(windowFrame, titleText)
-    local top = new("Frame", {
-        Parent = windowFrame,
-        Size = UDim2.new(1, 0, 0, 34),
-        Position = UDim2.new(0,0,0,0),
-        BackgroundTransparency = 1,
-        ZIndex = 50
-    })
-    new("UICorner", {Parent = top, CornerRadius = UDim.new(0, 8)})
-    local title = makeTextLabel(top, {Text = titleText or "Forsaken", Size = UDim2.new(0.7, -12, 1, 0), Position = UDim2.new(0, 12, 0, 0), TextSize = 15, Font = Enum.Font.SourceSansSemibold})
-    title.TextXAlignment = Enum.TextXAlignment.Left
-
-    local btnContainer = new("Frame", {Parent = top, Size = UDim2.new(0.3, -12, 1, 0), Position = UDim2.new(1, -12, 0, 0), BackgroundTransparency = 1})
-    new("UIListLayout", {Parent = btnContainer, FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Right, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 8)})
-    local minBtn = new("TextButton", {Parent = btnContainer, Size = UDim2.new(0, 28, 0, 20), BackgroundTransparency = 0.8, AutoButtonColor = true, Text = "_"})
-    local closeBtn = new("TextButton", {Parent = btnContainer, Size = UDim2.new(0, 28, 0, 20), BackgroundTransparency = 0.8, AutoButtonColor = true, Text = "✕"})
-    return top, minBtn, closeBtn, title
-end
-
--- CreateWindow
-function ForsakenLib:CreateWindow(title, options)
-    options = options or {}
-    local win = setmetatable({}, WindowProto)
-    win.Title = title or "Forsaken"
-    win.Options = options
-
-    -- Make mobile mode default true for mobile-first usage (user requested mobile-only)
-    if options.mobilemode == nil then options.mobilemode = true end
-
-    local parent = ParentGui
-    if not parent then
-        warn("[ForsakenLib] No parent GUI available; returning dummy window.")
-        function win:CreateTab() return {} end
-        function win:Unload() end
-        return win
-    end
-
-    local screenGui = new("ScreenGui", {Parent = parent, ResetOnSpawn = false, Name = ("Forsaken_Window_%d"):format(#_windows + 1)})
-    local rootFrame = makeNeumorphicFrame(screenGui, UDim2.new(0, 720, 0, 480), UDim2.new(0.5, -360, 0.5, -240), DEFAULTS.CornerRadius)
-    rootFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    rootFrame.Position = options.position or UDim2.new(0.5, 0, 0.5, 0)
-
-    local topBar, minBtn, closeBtn = makeTopBar(rootFrame, win.Title)
-
-    local sidebar = new("Frame", {Parent = rootFrame, Size = UDim2.new(0, 180, 1, -34), Position = UDim2.new(0, 0, 0, 34), BackgroundTransparency = 1})
-    local content = new("Frame", {Parent = rootFrame, Size = UDim2.new(1, -180, 1, -34), Position = UDim2.new(0, 180, 0, 34), BackgroundTransparency = 1})
-    new("UIListLayout", {Parent = sidebar, SortOrder = Enum.SortOrder.LayoutOrder})
-    new("UIListLayout", {Parent = content, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,8)})
-    win._gui = screenGui
-    win._root = rootFrame
-    win._sidebar = sidebar
-    win._content = content
-    win._tabs = {}
-
-    -- Drawer & overlay (mobile)
-    local drawer, overlay
-    local function createDrawer()
-        if drawer and drawer.Parent then return end
-        drawer = new("Frame", {Parent = screenGui, Size = UDim2.new(0, 260, 1, 0), Position = UDim2.new(-1, 0, 0, 0), BackgroundColor3 = ThemeState.current.Panel, BorderSizePixel = 0, ZIndex = 1000})
-        new("UICorner", {Parent = drawer, CornerRadius = DEFAULTS.CornerRadius})
-        overlay = new("Frame", {Parent = screenGui, BackgroundTransparency = 0.6, BackgroundColor3 = Color3.new(0,0,0), Size = UDim2.new(1, 0, 1, 0), Position = UDim2.new(0,0,0,0), Visible = false, ZIndex = 900})
-        trackConnection(overlay.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                tween(drawer, {Position = UDim2.new(-1, 0, 0, 0)}, DEFAULTS.Animation.Info)
-                if overlay then overlay.Visible = false end
-            end
-        end))
-    end
-
-    function win:SetMobileModeEnabled(state)
-        win._mobileEnabled = state and true or false
-        if win._mobileEnabled then
-            createDrawer()
-            sidebar.Visible = false
-            if drawer then
-                drawer.Position = UDim2.new(-1, 0, 0, 0)
-                tween(drawer, {Position = UDim2.new(0, 0, 0, 0)}, DEFAULTS.Animation.Info)
-            end
-            if overlay then overlay.Visible = true end
-        else
-            if drawer then tween(drawer, {Position = UDim2.new(-1, 0, 0, 0)}, DEFAULTS.Animation.Info) end
-            if overlay then overlay.Visible = false end
-            sidebar.Visible = true
-        end
-    end
-
-    -- default mobile behavior
-    win:SetMobileModeEnabled(options.mobilemode)
-
-    -- drag via top bar (touch + mouse)
-    if options.draggable ~= false then
-        local dragging, dragOffset
-        trackConnection(topBar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                local abs = rootFrame.AbsolutePosition
-                dragOffset = Vector2.new(input.Position.X - abs.X, input.Position.Y - abs.Y)
-            end
-        end))
-        trackConnection(UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.Touch or dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                local pos = UserInputService:GetMouseLocation()
-                rootFrame.Position = UDim2.new(0, pos.X - dragOffset.X + rootFrame.AbsoluteSize.X/2, 0, pos.Y - dragOffset.Y + rootFrame.AbsoluteSize.Y/2)
-            end
-        end))
-        trackConnection(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end))
-    end
-
-    -- controls
-    trackConnection(minBtn.MouseButton1Click:Connect(function() content.Visible = not content.Visible; sidebar.Visible = not sidebar.Visible end))
-    trackConnection(closeBtn.MouseButton1Click:Connect(function() win:Unload() end))
-
-    function win:CreateTab(name, icon)
-        local tab = setmetatable({}, TabProto)
-        tab.Name = name
-        tab._sections = {}
-        tab._parentWindow = win
-
-        -- sidebar button
-        local btn = new("TextButton", {Parent = sidebar, Size = UDim2.new(1, -12, 0, 44), BackgroundColor3 = ThemeState.current.Panel, Text = " "..(name or "Tab"), TextSize = 14, Font = Enum.Font.SourceSans, TextColor3 = ThemeState.current.Text, BorderSizePixel = 0, AutoButtonColor = true})
-        new("UICorner", {Parent = btn, CornerRadius = DEFAULTS.CornerRadius})
-
-        trackConnection(btn.MouseButton1Click:Connect(function()
-            for _, child in ipairs(content:GetChildren()) do if child:IsA("Frame") then child.Visible = false end end
-            if not tab._frame or not tab._frame.Parent then
-                local frame = new("Frame", {Parent = content, Size = UDim2.new(1, -12, 1, -12), Position = UDim2.new(0, 6, 0, 6), BackgroundTransparency = 1})
-                new("UIListLayout", {Parent = frame, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,8)})
-                new("UIPadding", {Parent = frame, PaddingTop = UDim.new(0,6), PaddingLeft = UDim.new(0,6), PaddingRight = UDim.new(0,6)})
-                tab._frame = frame
-            end
-            tab._frame.Visible = true
-        end))
-
-        -- drawer representation (mobile)
-        if drawer then
-            local dbtn = new("TextButton", {Parent = drawer, Size = UDim2.new(1, -12, 0, 44), BackgroundColor3 = ThemeState.current.Panel, Text = " "..(name or "Tab"), TextSize = 14, Font = Enum.Font.SourceSans, TextColor3 = ThemeState.current.Text, BorderSizePixel = 0, AutoButtonColor = true})
-            new("UICorner", {Parent = dbtn, CornerRadius = DEFAULTS.CornerRadius})
-            trackConnection(dbtn.MouseButton1Click:Connect(function()
-                btn.MouseButton1Click:Fire()
-                tween(drawer, {Position = UDim2.new(-1, 0, 0, 0)}, DEFAULTS.Animation.Info)
-                if overlay then overlay.Visible = false end
-            end))
-        end
-
-        tab._button = btn
-        table.insert(win._tabs, tab)
-        return tab
-    end
-
-    function win:Unload()
-        for _, c in ipairs(_connections) do pcall(function() c:Disconnect() end) end
-        _connections = {}
-        pcall(function() if screenGui and screenGui.Parent then screenGui:Destroy() end end)
-        for i, w in ipairs(_windows) do if w == win then table.remove(_windows, i); break end end
-    end
-
-    table.insert(_windows, win)
-    return win
-end
-
--- Section & Widgets
-function TabProto:AddSection(title)
-    local section = setmetatable({}, SectionProto)
-    section.Title = title or ""
-    section._items = {}
-
-    if not self._frame then
-        if self._button then self._button.MouseButton1Click:Fire() end
-    end
-    local parentFrame = self._frame or (self._parentWindow and self._parentWindow._content)
-    if parentFrame then
-        local secFrame = new("Frame", {Parent = parentFrame, Size = UDim2.new(1,0,0,64), BackgroundColor3 = ThemeState.current.Panel, BorderSizePixel = 0})
-        new("UICorner", {Parent = secFrame, CornerRadius = DEFAULTS.CornerRadius})
-        local header = makeTextLabel(secFrame, {Text = title or "", Size = UDim2.new(1, -12, 0, 22), Position = UDim2.new(0, 8, 0, 6), Font = Enum.Font.SourceSansBold})
-        local content = new("Frame", {Parent = secFrame, Size = UDim2.new(1, -12, 1, -34), Position = UDim2.new(0, 8, 0, 30), BackgroundTransparency = 1})
-        new("UIListLayout", {Parent = content, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0,8)})
-        section._frame = secFrame
-        section._content = content
-    else
-        section._frame = nil
-        section._content = nil
-    end
-
-    table.insert(self._sections, section)
-    return section
-end
-
-function SectionProto:AddButton(label, callback)
-    callback = callback or function() end
-    local content = self._content
-    if not content then return end
-    local btn = new("TextButton", {Parent = content, Size = UDim2.new(1,0,0,36), Text = label or "Button", TextSize = 14, Font = Enum.Font.SourceSans, BackgroundColor3 = ThemeState.current.Panel, TextColor3 = ThemeState.current.Text, BorderSizePixel = 0, AutoButtonColor = true})
-    new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,8)})
-    trackConnection(btn.MouseButton1Click:Connect(function()
-        pcall(callback, true)
-        local orig = btn.BackgroundTransparency
-        tween(btn, {BackgroundTransparency = 0.6}, DEFAULTS.Animation.Info)
-        delay(0.12, function() tween(btn, {BackgroundTransparency = orig}, DEFAULTS.Animation.Info) end)
-    end))
-    table.insert(self._items, btn)
-    return btn
-end
-
-function SectionProto:AddToggle(label, default, callback)
-    callback = callback or function() end
-    default = default and true or false
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,36), BackgroundTransparency = 1})
-    local text = makeTextLabel(row, {Text = label or "Toggle", Size = UDim2.new(0.7,0,1,0)})
-    local toggle = new("ImageButton", {Parent = row, Size = UDim2.new(0,44,0,24), Position = UDim2.new(1, -48, 0, 6), BackgroundColor3 = ThemeState.current.Panel, AutoButtonColor = true, BorderSizePixel = 0})
-    new("UICorner", {Parent = toggle, CornerRadius = UDim.new(0,12)})
-    local knob = new("Frame", {Parent = toggle, Size = UDim2.new(0.5, -4, 1, -4), Position = default and UDim2.new(0.5, 4, 0, 2) or UDim2.new(0, 2, 0, 2), BackgroundColor3 = default and ThemeState.current.Accent or Color3.fromRGB(200,200,200), BorderSizePixel = 0})
-    new("UICorner", {Parent = knob, CornerRadius = UDim.new(0,10)})
-    local state = default
-    trackConnection(toggle.MouseButton1Click:Connect(function()
-        state = not state
-        if state then
-            tween(knob, {Position = UDim2.new(0.5, 4, 0, 2)}, DEFAULTS.Animation.Info)
-            tween(knob, {BackgroundColor3 = ThemeState.current.Accent}, DEFAULTS.Animation.Info)
-        else
-            tween(knob, {Position = UDim2.new(0, 2, 0, 2)}, DEFAULTS.Animation.Info)
-            tween(knob, {BackgroundColor3 = Color3.fromRGB(200,200,200)}, DEFAULTS.Animation.Info)
-        end
-        pcall(callback, state)
-    end))
-    table.insert(self._items, {type="toggle", widget=toggle})
-    return toggle, function() return state end
-end
-
-function SectionProto:AddSlider(label, minVal, maxVal, default, callback)
-    callback = callback or function() end
-    minVal = minVal or 0
-    maxVal = maxVal or 100
-    default = default or minVal
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,56), BackgroundTransparency = 1})
-    local title = makeTextLabel(row, {Text = label or "Slider", Size = UDim2.new(1,0,0,18)})
-    local bar = new("Frame", {Parent = row, Size = UDim2.new(1,0,0,12), Position = UDim2.new(0,0,0,22), BackgroundColor3 = Color3.fromRGB(200,200,200), BorderSizePixel = 0})
-    new("UICorner", {Parent = bar, CornerRadius = UDim.new(0,8)})
-    local fill = new("Frame", {Parent = bar, Size = UDim2.new( (default-minVal)/(maxVal-minVal), 0, 1, 0 ), BackgroundColor3 = ThemeState.current.Accent, BorderSizePixel = 0})
-    new("UICorner", {Parent = fill, CornerRadius = UDim.new(0,8)})
-    local dragging = false
-    local function setFromX(x)
-        local barAbs = bar.AbsoluteSize.X
-        if barAbs <= 0 then return end
-        local rel = clamp(x / barAbs, 0, 1)
-        fill.Size = UDim2.new(rel, 0, 1, 0)
-        local value = minVal + rel * (maxVal - minVal)
-        pcall(callback, value)
-    end
-    trackConnection(bar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            local absX = (input.Position and input.Position.X or UserInputService:GetMouseLocation().X) - bar.AbsolutePosition.X
-            setFromX(absX)
-        end
-    end))
-    trackConnection(UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local absX = UserInputService:GetMouseLocation().X - bar.AbsolutePosition.X
-            setFromX(absX)
-        end
-    end))
-    trackConnection(UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end))
-    return {Set = function(val) local rel = clamp((val-minVal)/(maxVal-minVal), 0, 1); fill.Size = UDim2.new(rel,0,1,0); pcall(callback, val) end}
-end
-
-function SectionProto:AddTextbox(label, placeholder, callback)
-    callback = callback or function() end
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,44), BackgroundTransparency = 1})
-    local title = makeTextLabel(row, {Text = label or "Text", Size = UDim2.new(0.4,0,1,0)})
-    local box = new("TextBox", {Parent = row, Size = UDim2.new(0.6, -12, 0, 28), Position = UDim2.new(0.4, 8, 0, 8), BackgroundColor3 = Color3.fromRGB(255,255,255), Text = "", PlaceholderText = placeholder or "", TextColor3 = ThemeState.current.Text, Font = Enum.Font.SourceSans, TextSize = 14, BorderSizePixel = 0})
-    new("UICorner", {Parent = box, CornerRadius = UDim.new(0,6)})
-    trackConnection(box.FocusLost:Connect(function(enter)
-        pcall(callback, box.Text, enter)
-    end))
-    return box
-end
-
-function SectionProto:AddDropdown(label, items, callback)
-    callback = callback or function() end
-    items = items or {}
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,38), BackgroundTransparency = 1})
-    local title = makeTextLabel(row, {Text = label or "Dropdown", Size = UDim2.new(0.5,0,1,0)})
-    local btn = new("TextButton", {Parent = row, Size = UDim2.new(0.5, -12, 0, 28), Position = UDim2.new(0.5, 8, 0, 4), Text = "Select...", BackgroundColor3 = ThemeState.current.Panel, BorderSizePixel = 0, TextColor3 = ThemeState.current.Text})
-    new("UICorner", {Parent = btn, CornerRadius = UDim.new(0,8)})
-    local expanded = false
-    local listFrame
-    local function toggleList()
-        if expanded then
-            if listFrame then listFrame:Destroy(); listFrame = nil end
-            expanded = false
-        else
-            listFrame = new("Frame", {Parent = row, Size = UDim2.new(1,0,0, #items * 30), Position = UDim2.new(0, 0, 1, 4), BackgroundColor3 = ThemeState.current.Panel, BorderSizePixel = 0})
-            new("UICorner", {Parent = listFrame, CornerRadius = UDim.new(0, 8)})
-            for i, v in ipairs(items) do
-                local itemBtn = new("TextButton", {Parent = listFrame, Size = UDim2.new(1,0,0,28), Position = UDim2.new(0,0,0,(i-1)*28), Text = tostring(v), BackgroundTransparency = 1, TextColor3 = ThemeState.current.Text, BorderSizePixel = 0})
-                trackConnection(itemBtn.MouseButton1Click:Connect(function()
-                    btn.Text = tostring(v)
-                    toggleList()
-                    pcall(callback, v)
-                end))
-            end
-            expanded = true
-        end
-    end
-    trackConnection(btn.MouseButton1Click:Connect(toggleList))
-    return btn
-end
-
-function SectionProto:AddKeybind(label, defaultKey, callback)
-    callback = callback or function() end
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,36), BackgroundTransparency = 1})
-    local title = makeTextLabel(row, {Text = label or "Keybind", Size = UDim2.new(0.7,0,1,0)})
-    local bindBtn = new("TextButton", {Parent = row, Size = UDim2.new(0,100,0,28), Position = UDim2.new(1, -108, 0,4), Text = tostring(defaultKey or "None"), BackgroundColor3 = ThemeState.current.Panel, BorderSizePixel = 0})
-    new("UICorner", {Parent = bindBtn, CornerRadius = UDim.new(0,8)})
-    local capturing = false
-    trackConnection(bindBtn.MouseButton1Click:Connect(function()
-        bindBtn.Text = "Press a key..."
-        capturing = true
-        local conn
-        conn = UserInputService.InputBegan:Connect(function(input, gpe)
-            if gpe then return end
-            if input.KeyCode and input.KeyCode ~= Enum.KeyCode.Unknown then
-                capturing = false
-                bindBtn.Text = tostring(input.KeyCode)
-                pcall(callback, input.KeyCode)
-                conn:Disconnect()
-            end
-        end)
-        trackConnection(conn)
-    end))
-    return bindBtn
-end
-
--- Fixed ColorPicker implementation (simple RGB sliders + HEX preview)
-function SectionProto:AddColorPicker(label, defaultColor, callback)
-    callback = callback or function() end
-    defaultColor = defaultColor or ThemeState.current.Accent
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,44), BackgroundTransparency = 1})
-    local title = makeTextLabel(row, {Text = label or "Color", Size = UDim2.new(0.55, 0, 1, 0)})
-    local preview = new("TextButton", {Parent = row, Size = UDim2.new(0, 40, 0, 28), Position = UDim2.new(1, -48, 0, 8), BackgroundColor3 = defaultColor, BorderSizePixel = 0, Text = ""})
-    new("UICorner", {Parent = preview, CornerRadius = UDim.new(0,6)})
-
-    local pickerOpened = false
-    local pickerFrame
-
-    local function createRGBSlider(parent, labelText, minV, maxV, initV, onChange)
-        local container = new("Frame", {Parent = parent, Size = UDim2.new(1,0,0,28), BackgroundTransparency = 1})
-        local lbl = makeTextLabel(container, {Text = labelText, Size = UDim2.new(0.2, 0, 1, 0)})
-        local bar = new("Frame", {Parent = container, Size = UDim2.new(0.75, 0, 0, 10), Position = UDim2.new(0.24, 0, 0.5, -5), BackgroundColor3 = Color3.fromRGB(200,200,200), BorderSizePixel = 0})
-        new("UICorner", {Parent = bar, CornerRadius = UDim.new(0,6)})
-        local fill = new("Frame", {Parent = bar, Size = UDim2.new((initV-minV)/(maxV-minV),0,1,0), BackgroundColor3 = ThemeState.current.Accent, BorderSizePixel = 0})
-        new("UICorner", {Parent = fill, CornerRadius = UDim.new(0,6)})
-        local dragging = false
-        local function setFromX(x)
-            local barAbs = bar.AbsoluteSize.X
-            if barAbs <= 0 then return end
-            local rel = clamp(x / barAbs, 0, 1)
-            fill.Size = UDim2.new(rel, 0, 1, 0)
-            local value = minV + rel * (maxV - minV)
-            pcall(onChange, math.floor(value))
-        end
-        trackConnection(bar.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true
-                local absX = (input.Position and input.Position.X or UserInputService:GetMouseLocation().X) - bar.AbsolutePosition.X
-                setFromX(absX)
-            end
-        end))
-        trackConnection(UserInputService.InputChanged:Connect(function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                local absX = UserInputService:GetMouseLocation().X - bar.AbsolutePosition.X
-                setFromX(absX)
-            end
-        end))
-        trackConnection(UserInputService.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
-        end))
-        return {Set = function(v) local rel = clamp((v-minV)/(maxV-minV), 0, 1); fill.Size = UDim2.new(rel,0,1,0); pcall(onChange, math.floor(v)) end}
-    end
-
-    trackConnection(preview.MouseButton1Click and preview.MouseButton1Click or preview.InputBegan:Connect(function()
-        if pickerOpened then
-            if pickerFrame and pickerFrame.Parent then pickerFrame:Destroy() end
-            pickerOpened = false
-            return
-        end
-        pickerFrame = new("Frame", {Parent = row, Size = UDim2.new(1,0,0,150), Position = UDim2.new(0,0,1,4), BackgroundColor3 = ThemeState.current.Panel, BorderSizePixel = 0})
-        new("UICorner", {Parent = pickerFrame, CornerRadius = UDim.new(0,8)})
-        local rVal, gVal, bVal = math.floor(defaultColor.R*255), math.floor(defaultColor.G*255), math.floor(defaultColor.B*255)
-        local function updatePreview()
-            local c = Color3.fromRGB(clamp(rVal,0,255), clamp(gVal,0,255), clamp(bVal,0,255))
-            preview.BackgroundColor3 = c
-            pcall(callback, c)
-        end
-        -- slider rows
-        local rSlider = createRGBSlider(pickerFrame, "R", 0, 255, rVal, function(v) rVal = v; updatePreview() end)
-        local gSlider = createRGBSlider(pickerFrame, "G", 0, 255, gVal, function(v) gVal = v; updatePreview() end)
-        local bSlider = createRGBSlider(pickerFrame, "B", 0, 255, bVal, function(v) bVal = v; updatePreview() end)
-        pickerOpened = true
-    end))
-    return preview
-end
-
-function SectionProto:AddProgressBar(label)
-    local content = self._content
-    if not content then return end
-    local row = new("Frame", {Parent = content, Size = UDim2.new(1,0,0,30), BackgroundTransparency = 1})
-    local title = makeTextLabel(row, {Text = label or "Progress", Size = UDim2.new(0.3,0,1,0)})
-    local bar = new("Frame", {Parent = row, Size = UDim2.new(0.65,0,0,12), Position = UDim2.new(0.35,0,0,9), BackgroundColor3 = Color3.fromRGB(200,200,200), BorderSizePixel = 0})
-    new("UICorner", {Parent = bar, CornerRadius = UDim.new(0,8)})
-    local fill = new("Frame", {Parent = bar, Size = UDim2.new(0,0,1,0), BackgroundColor3 = ThemeState.current.Accent, BorderSizePixel = 0})
-    new("UICorner", {Parent = fill, CornerRadius = UDim.new(0,8)})
-    return {
-        Set = function(val)
-            val = clamp(val or 0, 0, 1)
-            tween(fill, {Size = UDim2.new(val,0,1,0)}, DEFAULTS.Animation.Info)
-        end
-    }
-end
-
--- FPS monitor
-local fpsMonitor
-function ForsakenLib:EnableFPS(state)
-    state = state and true or false
-    if state then
-        if fpsMonitor and fpsMonitor.Parent then return end
-        if not ParentGui then return end
-        fpsMonitor = new("ScreenGui", {Parent = ParentGui, Name = "Forsaken_FPS", ResetOnSpawn = false})
-        local lbl = makeTextLabel(fpsMonitor, {Text = "FPS: --", Size = UDim2.new(0, 80, 0, 24), Position = UDim2.new(0, 8, 0, 8), TextSize = 14})
-        local last = tick()
-        local count = 0
-        trackConnection(RunService.RenderStepped:Connect(function(dt)
-            count = count + 1
-            if tick() - last >= 1 then
-                lbl.Text = "FPS: "..tostring(count)
-                count = 0
-                last = tick()
-            end
-        end))
-    else
-        if fpsMonitor and fpsMonitor.Parent then fpsMonitor:Destroy(); fpsMonitor = nil end
-    end
-end
-
--- Theme API
-function ForsakenLib:SetTheme(theme)
-    if type(theme) == "string" and PRESET_THEMES[theme] then
-        ThemeState.current = PRESET_THEMES[theme]
-        ThemeState.name = theme
-    elseif type(theme) == "table" then
-        ThemeState.current = theme
-        ThemeState.name = "Custom"
-    else
-        warn("[ForsakenLib] Invalid theme passed to SetTheme.")
-        return
-    end
-    -- Minimal runtime recolor: update top-level text colors and previewable elements.
-    for _, win in ipairs(_windows) do
-        pcall(function()
-            if win._root and win._root.Parent then
-                for _, obj in ipairs(win._root:GetDescendants()) do
-                    if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                        pcall(function() obj.TextColor3 = ThemeState.current.Text end)
-                    end
-                    if obj:IsA("Frame") and obj.BackgroundTransparency ~= 1 then
-                        -- naive: do not recolor every frame to avoid clobbering custom colors
-                    end
-                end
-            end
-        end)
-    end
-end
-
+-- // CLEANUP //
 function ForsakenLib:Unload()
-    for _, w in ipairs(_windows) do pcall(function() w:Unload() end) end
-    _windows = {}
-    for _, c in ipairs(_connections) do pcall(function() c:Disconnect() end) end
-    _connections = {}
-    pcall(function() if NotificationsGui and NotificationsGui.Parent then NotificationsGui:Destroy() end end)
+	if Drawer then Drawer:Destroy() end
+	if ToggleButton then ToggleButton:Destroy() end
 end
-
--- expose internals (limited)
-ForsakenLib._internal = {ThemeState = ThemeState, PRESET_THEMES = PRESET_THEMES}
 
 return ForsakenLib
