@@ -3,7 +3,11 @@
     Optimized for 1640x720 phone displays
     Features: Custom notifications, close/minimize buttons, sideways scroll selectors, Lucide icons
     
-    Example usage at: https://raw.githubusercontent.com/musiclibco-cloud/ShortAndMemorable/refs/heads/main/testo-example
+    Example Usage:
+    local tetolib = loadstring(game:HttpGet("YOUR_URL_HERE"))()
+    local Window = tetolib:CreateWindow({Name = "My UI"})
+    local Tab = Window:CreateTab("Main", "home")
+    Tab:CreateButton({Name = "Click Me", Icon = "bell", Callback = function() end})
 ]]
 
 local tetolib = {Flags = {}, Theme = {}}
@@ -482,6 +486,7 @@ function tetolib:CreateWindow(options)
             local btnText = options.Name or "Button"
             local callback = options.Callback or function() end
             local icon = options.Icon
+            local flag = options.Flag
             
             local Button = Instance.new("TextButton")
             Button.Size = UDim2.new(1, 0, 0, 40)
@@ -543,6 +548,10 @@ function tetolib:CreateWindow(options)
             
             Button.MouseButton1Click:Connect(callback)
             
+            if flag then
+                tetolib.Flags[flag] = Button
+            end
+            
             return Button
         end
         
@@ -600,14 +609,8 @@ function tetolib:CreateWindow(options)
             CircleCorner.CornerRadius = UDim.new(1, 0)
             CircleCorner.Parent = ToggleCircle
             
-            local ToggleObject = {
-                CurrentValue = currentValue,
-                Flag = flag
-            }
-            
             ToggleBtn.MouseButton1Click:Connect(function()
                 currentValue = not currentValue
-                ToggleObject.CurrentValue = currentValue
                 TweenService:Create(ToggleBtn, TweenInfo.new(0.2), {
                     BackgroundColor3 = currentValue and tetolib.Theme.ToggleEnabled or tetolib.Theme.ToggleDisabled
                 }):Play()
@@ -617,18 +620,21 @@ function tetolib:CreateWindow(options)
                 callback(currentValue)
             end)
             
-            ToggleObject.Set = function(self, value)
-                currentValue = value
-                self.CurrentValue = value
-                ToggleBtn.BackgroundColor3 = value and tetolib.Theme.ToggleEnabled or tetolib.Theme.ToggleDisabled
-                ToggleCircle.Position = value and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
-            end
+            local ToggleObj = {
+                CurrentValue = currentValue,
+                Set = function(self, value)
+                    currentValue = value
+                    self.CurrentValue = value
+                    ToggleBtn.BackgroundColor3 = value and tetolib.Theme.ToggleEnabled or tetolib.Theme.ToggleDisabled
+                    ToggleCircle.Position = value and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+                end
+            }
             
             if flag then
-                tetolib.Flags[flag] = ToggleObject
+                tetolib.Flags[flag] = ToggleObj
             end
             
-            return ToggleObject
+            return ToggleObj
         end
         
         -- Slider
@@ -717,18 +723,12 @@ function tetolib:CreateWindow(options)
             
             local dragging = false
             
-            local SliderObject = {
-                CurrentValue = currentValue,
-                Flag = flag
-            }
-            
             local function updateSlider(input)
                 local pos = math.clamp((input.Position.X - SliderBar.AbsolutePosition.X) / SliderBar.AbsoluteSize.X, 0, 1)
                 local rawValue = min + (max - min) * pos
                 currentValue = math.floor(rawValue / increment + 0.5) * increment
                 currentValue = math.clamp(currentValue, min, max)
                 
-                SliderObject.CurrentValue = currentValue
                 ValueLabel.Text = tostring(currentValue)
                 SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
                 SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
@@ -754,37 +754,72 @@ function tetolib:CreateWindow(options)
                 end
             end)
             
-            SliderObject.Set = function(self, value)
-                currentValue = math.clamp(value, min, max)
-                self.CurrentValue = currentValue
-                ValueLabel.Text = tostring(currentValue)
-                SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
-                SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
-            end
-            
-            SliderObject.SetMin = function(self, newMin)
-                min = newMin
-                currentValue = math.clamp(currentValue, min, max)
-                self.CurrentValue = currentValue
-                ValueLabel.Text = tostring(currentValue)
-                SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
-                SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
-            end
-            
-            SliderObject.SetMax = function(self, newMax)
-                max = newMax
-                currentValue = math.clamp(currentValue, min, max)
-                self.CurrentValue = currentValue
-                ValueLabel.Text = tostring(currentValue)
-                SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
-                SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
-            end
+            local SliderObj = {
+                CurrentValue = currentValue,
+                Set = function(self, value)
+                    currentValue = math.clamp(value, min, max)
+                    self.CurrentValue = currentValue
+                    ValueLabel.Text = tostring(currentValue)
+                    SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                end,
+                SetMin = function(self, newMin)
+                    min = newMin
+                    currentValue = math.clamp(currentValue, min, max)
+                    self.CurrentValue = currentValue
+                    ValueLabel.Text = tostring(currentValue)
+                    SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                end,
+                SetMax = function(self, newMax)
+                    max = newMax
+                    currentValue = math.clamp(currentValue, min, max)
+                    self.CurrentValue = currentValue
+                    ValueLabel.Text = tostring(currentValue)
+                    SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                end
+            }
             
             if flag then
-                tetolib.Flags[flag] = SliderObject
+                tetolib.Flags[flag] = SliderObj
             end
             
-            return SliderObject
+            return SliderObj
+        end(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = false
+                end
+            end)
+            
+            UserInputService.InputChanged:Connect(function(input)
+                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    updateSlider(input)
+                end
+            end)
+            
+            return {
+                Set = function(self, value)
+                    currentValue = math.clamp(value, min, max)
+                    ValueLabel.Text = tostring(currentValue)
+                    SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                end,
+                SetMin = function(self, newMin)
+                    min = newMin
+                    currentValue = math.clamp(currentValue, min, max)
+                    ValueLabel.Text = tostring(currentValue)
+                    SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                end,
+                SetMax = function(self, newMax)
+                    max = newMax
+                    currentValue = math.clamp(currentValue, min, max)
+                    ValueLabel.Text = tostring(currentValue)
+                    SliderFill.Size = UDim2.new((currentValue - min) / (max - min), 0, 1, 0)
+                    SliderDot.Position = UDim2.new((currentValue - min) / (max - min), -6, 0.5, 0)
+                end
+            }
         end
         
         -- Input
@@ -792,6 +827,7 @@ function tetolib:CreateWindow(options)
             local inputText = options.Name or "Input"
             local placeholder = options.PlaceholderText or "Enter text..."
             local callback = options.Callback or function() end
+            local flag = options.Flag
             
             local Input = Instance.new("Frame")
             Input.Size = UDim2.new(1, 0, 0, 60)
@@ -842,11 +878,19 @@ function tetolib:CreateWindow(options)
                 callback(InputBox.Text)
             end)
             
-            return {
+            local InputObj = {
+                CurrentValue = "",
                 Set = function(self, value)
                     InputBox.Text = value
+                    self.CurrentValue = value
                 end
             }
+            
+            if flag then
+                tetolib.Flags[flag] = InputObj
+            end
+            
+            return InputObj
         end
         
         -- Dropdown (DEPRECATED - Use CreateScrollSelector instead)
@@ -970,6 +1014,7 @@ function tetolib:CreateWindow(options)
             local currentIndex = options.CurrentOption and table.find(items, options.CurrentOption) or 1
             local callback = options.Callback or function() end
             local icon = options.Icon
+            local flag = options.Flag
             
             local Selector = Instance.new("Frame")
             Selector.Size = UDim2.new(1, 0, 0, 55)
@@ -1122,11 +1167,13 @@ function tetolib:CreateWindow(options)
                 callback(items[currentIndex])
             end)
             
-            return {
+            local SelectorObj = {
+                CurrentOption = items[currentIndex],
                 Set = function(self, value)
                     for i, item in ipairs(items) do
                         if item == value then
                             currentIndex = i
+                            self.CurrentOption = item
                             ValueLabel.Text = item
                             break
                         end
@@ -1135,9 +1182,16 @@ function tetolib:CreateWindow(options)
                 SetOptions = function(self, newOptions)
                     items = newOptions
                     currentIndex = math.clamp(currentIndex, 1, #items)
-                    ValueLabel.Text = items[currentIndex] or "None"
+                    self.CurrentOption = items[currentIndex] or "None"
+                    ValueLabel.Text = self.CurrentOption
                 end
             }
+            
+            if flag then
+                tetolib.Flags[flag] = SelectorObj
+            end
+            
+            return SelectorObj
         end
         
         -- Label
