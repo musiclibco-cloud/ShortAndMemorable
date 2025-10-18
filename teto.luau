@@ -1,6 +1,6 @@
 --[[
     tetolib - Red/Black Themed UI Library
-    Optimized for 1640x720 phone displays
+    Optimized for phone displays
     Features: Custom notifications, close/minimize buttons, sideways scroll selectors, Lucide icons
 ]]
 
